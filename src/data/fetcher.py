@@ -1,5 +1,5 @@
 """
-Stock data fetcher using yfinance for Japanese stocks
+Stock data fetcher using Stooq for Japanese stocks
 """
 import logging
 from datetime import datetime, timedelta
@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import time
 
 import pandas as pd
-import yfinance as yf
+from pandas_datareader import data as pdr
 from pathlib import Path
 
 import sys
@@ -19,8 +19,10 @@ logger = logging.getLogger(__name__)
 
 class StockDataFetcher:
     """
-    Fetches historical stock data from Yahoo Finance for Japanese stocks
+    Fetches historical stock data from Stooq for Japanese stocks
     Supports caching to reduce API calls
+
+    Note: Stooq uses .JP suffix for Japanese stocks (e.g., 7203.JP for Toyota)
     """
 
     def __init__(
@@ -46,6 +48,21 @@ class StockDataFetcher:
         self.last_request_time = 0
         self.min_request_interval = 60.0 / DATA_FETCH_CONFIG["requests_per_minute"]
 
+    def _convert_symbol_to_stooq(self, symbol: str) -> str:
+        """
+        Convert symbol format to Stooq format
+
+        Args:
+            symbol: Stock symbol (e.g., "7203.T" or "7203")
+
+        Returns:
+            Stooq format symbol (e.g., "7203.JP")
+        """
+        # Remove any existing suffix
+        base_symbol = symbol.split('.')[0]
+        # Add .JP for Tokyo Stock Exchange
+        return f"{base_symbol}.JP"
+
     def fetch_stock_data(
         self,
         symbol: str,
@@ -57,13 +74,13 @@ class StockDataFetcher:
         Fetch OHLCV data for a single stock
 
         Args:
-            symbol: Stock symbol (e.g., "7203.T" for Toyota)
+            symbol: Stock symbol (e.g., "7203.T" or "7203.JP" for Toyota)
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             force_refresh: Bypass cache and fetch fresh data
 
         Returns:
-            DataFrame with columns: Open, High, Low, Close, Volume, Adj Close
+            DataFrame with columns: Open, High, Low, Close, Volume
             Returns None if fetch fails
         """
         # Check cache first
@@ -73,21 +90,31 @@ class StockDataFetcher:
                 logger.info(f"Loaded {symbol} from cache")
                 return cached_data
 
-        # Fetch from Yahoo Finance
-        logger.info(f"Fetching {symbol} from {start_date} to {end_date}")
+        # Convert to Stooq format
+        stooq_symbol = self._convert_symbol_to_stooq(symbol)
+
+        # Fetch from Stooq
+        logger.info(f"Fetching {symbol} ({stooq_symbol}) from {start_date} to {end_date}")
 
         for attempt in range(self.max_retries):
             try:
                 # Rate limiting
                 self._rate_limit()
 
-                # Fetch data
-                ticker = yf.Ticker(symbol)
-                df = ticker.history(start=start_date, end=end_date, auto_adjust=False)
+                # Fetch data using pandas-datareader
+                df = pdr.DataReader(
+                    stooq_symbol,
+                    'stooq',
+                    start=start_date,
+                    end=end_date
+                )
 
                 if df.empty:
                     logger.warning(f"No data returned for {symbol}")
                     return None
+
+                # Stooq returns data in reverse chronological order, so reverse it
+                df = df.sort_index()
 
                 # Validate data
                 if not self._validate_data(df):
@@ -232,10 +259,20 @@ class StockDataFetcher:
             Latest closing price or None
         """
         try:
-            ticker = yf.Ticker(symbol)
+            stooq_symbol = self._convert_symbol_to_stooq(symbol)
             # Get last 5 days to ensure we have recent data
-            df = ticker.history(period="5d")
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=10)
+
+            df = pdr.DataReader(
+                stooq_symbol,
+                'stooq',
+                start=start_date,
+                end=end_date
+            )
+
             if not df.empty:
+                df = df.sort_index()
                 return float(df["Close"].iloc[-1])
             return None
         except Exception as e:
@@ -249,7 +286,7 @@ def fetch_stock_data(symbol: str, start_date: str, end_date: str) -> Optional[pd
     Convenience function to fetch stock data
 
     Args:
-        symbol: Stock symbol (e.g., "7203.T")
+        symbol: Stock symbol (e.g., "7203.T" or "7203")
         start_date: Start date (YYYY-MM-DD)
         end_date: End date (YYYY-MM-DD)
 

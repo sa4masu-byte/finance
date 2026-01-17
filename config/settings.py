@@ -185,7 +185,7 @@ OPTIMIZATION_CONFIG = {
 
 DATA_FETCH_CONFIG = {
     # Data source
-    "source": "yfinance",
+    "source": "stooq",  # Using Stooq via pandas-datareader
 
     # Retry settings
     "max_retries": 3,

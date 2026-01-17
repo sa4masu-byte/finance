@@ -3,13 +3,14 @@ python-dateutil>=2.8.2
 pytz>=2023.3
 
 # Data acquisition and processing
-yfinance>=0.2.36
+pandas-datareader>=0.10.0
 pandas>=2.0.0
 numpy>=1.24.0
+pyarrow>=10.0.0  # For parquet file support
 
-# Technical analysis
-pandas-ta>=0.3.14b
-TA-Lib>=0.4.28
+# Technical analysis (manual implementation in src/analysis/indicators.py)
+# pandas-ta>=0.3.14b  # Optional, not available in all environments
+# TA-Lib>=0.4.28  # Optional, requires compilation
 
 # Optimization
 scikit-optimize>=0.9.0
