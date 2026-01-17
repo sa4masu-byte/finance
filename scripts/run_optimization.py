@@ -12,7 +12,6 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from config.settings import BACKTEST_CONFIG, OPTIMIZATION_CONFIG, REPORTS_DIR
-from config.stock_universe import load_stock_universe
 from src.data.fetcher import StockDataFetcher
 from backtesting.optimizer import WeightOptimizer
 from backtesting.backtest_engine import BacktestEngine
