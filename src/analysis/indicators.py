@@ -269,7 +269,12 @@ class TechnicalIndicators:
         df = df.copy()
 
         df["Volume_MA"] = df["Volume"].rolling(window=self.params["volume_ma_period"]).mean()
-        df["Volume_Ratio"] = df["Volume"] / df["Volume_MA"]
+        # Avoid division by zero when Volume_MA is zero
+        df["Volume_Ratio"] = np.where(
+            df["Volume_MA"] != 0,
+            df["Volume"] / df["Volume_MA"],
+            1.0  # Neutral value when no average available
+        )
 
         return df
 
