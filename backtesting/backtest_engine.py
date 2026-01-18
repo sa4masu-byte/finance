@@ -107,8 +107,9 @@ class BacktestResults:
         total_losses = abs(sum(t.profit_loss for t in self.losing_trades))
 
         if total_losses == 0:
-            return float('inf') if total_wins > 0 else 0.0
-        return total_wins / total_losses
+            # Cap at reasonable maximum for calculations
+            return 10.0 if total_wins > 0 else 0.0
+        return min(total_wins / total_losses, 10.0)  # Cap at 10.0 to avoid extreme values
 
     @property
     def sharpe_ratio(self) -> float:

@@ -67,6 +67,69 @@ SCORING_WEIGHTS = {
 assert abs(sum(SCORING_WEIGHTS.values()) - 1.0) < 0.001, "Weights must sum to 1.0"
 
 # =============================================================================
+# SCORING COMPONENT PARAMETERS (for ScoringEngine)
+# =============================================================================
+
+SCORING_PARAMS = {
+    # Trend scoring
+    "trend": {
+        "max_score": 35,
+        "price_above_sma": 7,
+        "golden_cross": 8,
+        "macd_above_signal": 8,
+        "macd_histogram_positive": 7,
+        "sma_aligned_bonus": 5,
+    },
+    # Momentum scoring
+    "momentum": {
+        "max_score": 30,
+        "rsi_optimal_min": 40,
+        "rsi_optimal_max": 65,
+        "rsi_optimal_score": 15,
+        "rsi_oversold_min": 30,
+        "rsi_oversold_max": 40,
+        "rsi_oversold_score": 12,
+        "rsi_room_min": 65,
+        "rsi_room_max": 70,
+        "rsi_room_score": 5,
+        "stoch_bullish_crossover": 10,
+        "stoch_overbought_threshold": 80,
+        "stoch_not_overbought_score": 5,
+    },
+    # Volume scoring
+    "volume": {
+        "max_score": 25,
+        "exceptional_threshold": 2.0,
+        "exceptional_score": 20,
+        "high_threshold": 1.5,
+        "high_score": 12,
+        "above_avg_threshold": 1.2,
+        "above_avg_score": 6,
+        "obv_uptrend_score": 5,
+    },
+    # Volatility scoring
+    "volatility": {
+        "max_score": 18,
+        "near_lower_band_threshold": 0.3,
+        "near_lower_band_score": 8,
+        "below_middle_threshold": 0.5,
+        "below_middle_score": 5,
+        "tight_squeeze_threshold": 3,
+        "tight_squeeze_score": 7,
+        "moderate_squeeze_threshold": 5,
+        "moderate_squeeze_score": 4,
+        "low_atr_threshold": 3,
+        "low_atr_score": 3,
+    },
+    # Pattern scoring
+    "pattern": {
+        "max_score": 10,
+        "near_support_threshold": 0.02,
+        "near_support_score": 5,
+    },
+}
+
+# =============================================================================
 # SCREENING CRITERIA
 # =============================================================================
 

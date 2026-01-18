@@ -264,6 +264,9 @@ class StockDataFetcher:
             end_date = datetime.now()
             start_date = end_date - timedelta(days=10)
 
+            # Apply rate limiting
+            self._rate_limit()
+
             df = pdr.DataReader(
                 stooq_symbol,
                 'stooq',
