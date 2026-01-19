@@ -45,8 +45,14 @@ class MLScoringEngine:
             self.is_trained = True
             logger.info(f"Loaded ML model from {self.model_path}")
             return True
-        except Exception as e:
-            logger.error(f"Failed to load model: {e}")
+        except (FileNotFoundError, PermissionError) as e:
+            logger.error(f"Failed to access model file: {e}")
+            return False
+        except (pickle.UnpicklingError, EOFError) as e:
+            logger.error(f"Failed to deserialize model (corrupted file?): {e}")
+            return False
+        except (AttributeError, ModuleNotFoundError) as e:
+            logger.error(f"Model incompatible with current environment: {e}")
             return False
 
     def train_model(
@@ -260,8 +266,14 @@ class MLScoringEngine:
 
             return ml_score, confidence
 
-        except Exception as e:
-            logger.warning(f"Prediction error: {e}")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Prediction input error: {e}")
+            return 0.0, 0.0
+        except (IndexError, KeyError) as e:
+            logger.warning(f"Prediction output error: {e}")
+            return 0.0, 0.0
+        except ImportError as e:
+            logger.warning(f"ML library not available: {e}")
             return 0.0, 0.0
 
     def get_combined_score(
@@ -316,7 +328,7 @@ class MLScoringEngine:
         Create training labels from historical trades
 
         Args:
-            trades: List of Trade objects
+            trades: List of Trade objects with indicators_at_entry attribute
             min_return_threshold: Minimum return to consider a trade successful
 
         Returns:
@@ -332,13 +344,17 @@ class MLScoringEngine:
             # Label: 1 if trade was profitable, 0 otherwise
             label = 1 if trade.return_pct >= min_return_threshold else 0
 
-            # Features would need to be stored at entry time
-            # This is a placeholder - actual implementation would need
-            # indicators stored with each trade
-            features.append({
-                "score_at_entry": trade.score_at_entry,
-                # Add more features as needed
-            })
+            # Collect available features from trade
+            trade_features = {
+                "score_at_entry": getattr(trade, 'score_at_entry', 50.0),
+                "atr_at_entry": getattr(trade, 'atr_at_entry', 0.0),
+            }
+
+            # Add indicators if stored (for enhanced trades)
+            if hasattr(trade, 'indicators_at_entry') and trade.indicators_at_entry:
+                trade_features.update(trade.indicators_at_entry)
+
+            features.append(trade_features)
             labels.append(label)
 
         return features, labels

@@ -888,7 +888,7 @@ class EnhancedBacktestEngine:
                 return None
             row = df.loc[date]
             return row.to_dict()
-        except Exception:
+        except (KeyError, TypeError, AttributeError):
             return None
 
     def _get_price(self, df: pd.DataFrame, date: datetime, column: str) -> Optional[float]:
@@ -897,5 +897,5 @@ class EnhancedBacktestEngine:
             if date not in df.index:
                 return None
             return float(df.loc[date, column])
-        except Exception:
+        except (KeyError, TypeError, ValueError):
             return None
