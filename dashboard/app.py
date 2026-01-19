@@ -1,7 +1,10 @@
 """
 Mobile-friendly Web Dashboard for Stock Recommendations
 Run with: python -m dashboard.app
+
+For PythonAnywhere deployment, see wsgi.py
 """
+import os
 from flask import Flask, render_template, jsonify
 from datetime import datetime, timedelta
 import sys
@@ -15,9 +18,15 @@ sys.path.append(str(project_root))
 
 from config.settings import REPORTS_DIR
 
+# Determine if running on PythonAnywhere
+ON_PYTHONANYWHERE = 'PYTHONANYWHERE_SITE' in os.environ
+
 app = Flask(__name__,
             template_folder=str(Path(__file__).parent / 'templates'),
             static_folder=str(Path(__file__).parent / 'static'))
+
+# Secret key for session (change this in production)
+app.secret_key = os.environ.get('SECRET_KEY', 'change-this-in-production')
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
