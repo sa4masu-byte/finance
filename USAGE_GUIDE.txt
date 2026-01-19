@@ -22,11 +22,43 @@
 - Python 3.9以上
 - pip（Pythonパッケージマネージャー）
 
-【インストール手順】
+【インストール手順 - Anaconda】
+
+# 1. 仮想環境を作成
+conda create -n finance python=3.11 -y
+
+# 2. 仮想環境を有効化
+conda activate finance
+
+# 3. リポジトリをクローン
+git clone <repository-url>
+cd finance
+
+# 4. 依存関係をインストール
+pip install -e .
+
+# 5. 追加ライブラリ（実データ取得用）
+pip install yfinance
+
+# 6. 機械学習機能を使う場合（オプション）
+conda install lightgbm xgboost -c conda-forge -y
+
+# 仮想環境の終了
+conda deactivate
+
+# 仮想環境の削除（不要になった場合）
+conda remove -n finance --all
+
+
+【インストール手順 - pip（Anaconda以外）】
 
 # リポジトリをクローン
 git clone <repository-url>
 cd finance
+
+# 仮想環境を作成（推奨）
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 依存関係をインストール
 pip install -e .
