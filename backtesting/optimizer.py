@@ -94,6 +94,7 @@ class WeightOptimizer:
         self,
         initial_results: List[Tuple[Dict, float]],
         n_iterations: int = OPTIMIZATION_CONFIG["n_iterations"],
+        verbose: bool = False,
     ) -> Tuple[Dict, float]:
         """
         Perform Bayesian optimization starting from grid search results
@@ -101,6 +102,7 @@ class WeightOptimizer:
         Args:
             initial_results: Results from grid search
             n_iterations: Number of optimization iterations
+            verbose: Whether to print optimization progress
 
         Returns:
             (best_weights, best_score) tuple
@@ -168,7 +170,7 @@ class WeightOptimizer:
             y0=y0,
             n_calls=n_iterations,
             random_state=42,
-            verbose=True,
+            verbose=verbose,
         )
 
         # Extract best weights
@@ -267,16 +269,20 @@ class WeightOptimizer:
             end_date: Backtest end date
 
         Returns:
-            Composite optimization score
+            Composite optimization score (0.0 on error)
         """
-        # Run backtest
-        engine = BacktestEngine(scoring_weights=weights)
-        results = engine.run_backtest(self.stock_data, start_date, end_date)
+        try:
+            # Run backtest
+            engine = BacktestEngine(scoring_weights=weights)
+            results = engine.run_backtest(self.stock_data, start_date, end_date)
 
-        # Calculate composite score
-        score = self._calculate_optimization_score(results)
+            # Calculate composite score
+            score = self._calculate_optimization_score(results)
 
-        return score
+            return score
+        except Exception as e:
+            logger.warning(f"Error evaluating weights {weights}: {e}")
+            return 0.0  # Return minimum score on error
 
     def _calculate_optimization_score(self, results: BacktestResults) -> float:
         """
@@ -286,8 +292,13 @@ class WeightOptimizer:
             results: BacktestResults object
 
         Returns:
-            Composite score (0-100)
+            Composite score (0-100), returns 0.0 for empty results
         """
+        # Handle empty results
+        if results.num_trades == 0:
+            logger.debug("No trades in backtest results, returning score 0")
+            return 0.0
+
         obj_weights = OPTIMIZATION_CONFIG["objective_weights"]
 
         # Normalize metrics to 0-100 scale

@@ -10,7 +10,7 @@ import pandas as pd
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from config.settings import SCORING_WEIGHTS, SCREENING_CRITERIA
+from config.settings import SCORING_WEIGHTS, SCORING_PARAMS, SCREENING_CRITERIA
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +21,17 @@ class ScoringEngine:
     Score range: 0-100
     """
 
-    def __init__(self, weights: Optional[Dict] = None):
+    def __init__(self, weights: Optional[Dict] = None, params: Optional[Dict] = None):
         """
         Initialize scoring engine with weights
 
         Args:
             weights: Dictionary of category weights (trend, momentum, volume, volatility, pattern)
                     If None, uses default weights from settings
+            params: Dictionary of scoring parameters. If None, uses default from settings
         """
         self.weights = weights if weights is not None else SCORING_WEIGHTS
+        self.params = params if params is not None else SCORING_PARAMS
 
         # Validate weights
         total_weight = sum(self.weights.values())
@@ -87,42 +89,43 @@ class ScoringEngine:
         Calculate trend score (0-100)
 
         Components:
-        - Price above SMA_25: +7
-        - SMA_5 > SMA_25 (Golden Cross): +8
-        - MACD > Signal: +8
-        - MACD Histogram increasing: +7
-        - Golden Cross bonus: +5 (if recently occurred)
+        - Price above SMA_25
+        - SMA_5 > SMA_25 (Golden Cross)
+        - MACD > Signal
+        - MACD Histogram increasing
+        - All SMAs aligned bonus
         """
         score = 0
-        max_score = 30
+        p = self.params["trend"]
+        max_score = p["max_score"]
 
         try:
             # Price above medium-term SMA
             if ind.get("Close") and ind.get("SMA_25"):
                 if ind["Close"] > ind["SMA_25"]:
-                    score += 7
+                    score += p["price_above_sma"]
 
             # Golden Cross (short SMA above medium SMA)
             if ind.get("SMA_5") and ind.get("SMA_25"):
                 if ind["SMA_5"] > ind["SMA_25"]:
-                    score += 8
+                    score += p["golden_cross"]
 
             # MACD above signal line
             if ind.get("MACD") and ind.get("MACD_Signal"):
                 if ind["MACD"] > ind["MACD_Signal"]:
-                    score += 8
+                    score += p["macd_above_signal"]
 
             # MACD Histogram positive (momentum increasing)
             if ind.get("MACD_Histogram"):
                 if ind["MACD_Histogram"] > 0:
-                    score += 7
+                    score += p["macd_histogram_positive"]
 
             # Bonus for strong trend confirmation
             if ind.get("SMA_5") and ind.get("SMA_25") and ind.get("SMA_75"):
                 if ind["SMA_5"] > ind["SMA_25"] > ind["SMA_75"]:
-                    score += 5  # All SMAs aligned
+                    score += p["sma_aligned_bonus"]  # All SMAs aligned
 
-        except Exception as e:
+        except (KeyError, TypeError) as e:
             logger.warning(f"Error calculating trend score: {e}")
 
         # Normalize to 0-100
@@ -133,27 +136,28 @@ class ScoringEngine:
         Calculate momentum score (0-100)
 
         Components:
-        - RSI in optimal range (40-65): +15
-        - RSI 30-40 (oversold recovery): +12
-        - RSI 65-70 (still has room): +5
-        - Stochastic %K > %D: +10
-        - Stochastic %K < 80 (not overbought): +5
+        - RSI in optimal range
+        - RSI in oversold recovery zone
+        - RSI still has room
+        - Stochastic %K > %D
+        - Stochastic %K < 80 (not overbought)
         """
         score = 0
-        max_score = 25
+        p = self.params["momentum"]
+        max_score = p["max_score"]
 
         try:
             rsi = ind.get("RSI_14")
             if rsi is not None:
-                if 40 <= rsi <= 65:
+                if p["rsi_optimal_min"] <= rsi <= p["rsi_optimal_max"]:
                     # Optimal swing trading zone
-                    score += 15
-                elif 30 <= rsi < 40:
+                    score += p["rsi_optimal_score"]
+                elif p["rsi_oversold_min"] <= rsi < p["rsi_oversold_max"]:
                     # Oversold recovery potential
-                    score += 12
-                elif 65 < rsi <= 70:
+                    score += p["rsi_oversold_score"]
+                elif p["rsi_room_min"] < rsi <= p["rsi_room_max"]:
                     # Still has some room
-                    score += 5
+                    score += p["rsi_room_score"]
                 # RSI > 70 or < 30: No points (too extreme)
 
             # Stochastic
@@ -163,13 +167,13 @@ class ScoringEngine:
             if stoch_k is not None and stoch_d is not None:
                 # %K above %D (bullish crossover)
                 if stoch_k > stoch_d:
-                    score += 10
+                    score += p["stoch_bullish_crossover"]
 
                 # Not overbought
-                if stoch_k < 80:
-                    score += 5
+                if stoch_k < p["stoch_overbought_threshold"]:
+                    score += p["stoch_not_overbought_score"]
 
-        except Exception as e:
+        except (KeyError, TypeError) as e:
             logger.warning(f"Error calculating momentum score: {e}")
 
         # Normalize to 0-100
@@ -180,33 +184,35 @@ class ScoringEngine:
         Calculate volume score (0-100)
 
         Components:
-        - Volume > 1.5x average: +12
-        - Volume > 2.0x average: +20
-        - OBV trending up: +5
+        - Volume > exceptional threshold
+        - Volume > high threshold
+        - Volume > above average threshold
+        - OBV trending up
         """
         score = 0
-        max_score = 20
+        p = self.params["volume"]
+        max_score = p["max_score"]
 
         try:
             volume_ratio = ind.get("Volume_Ratio")
 
             if volume_ratio is not None:
-                if volume_ratio >= 2.0:
+                if volume_ratio >= p["exceptional_threshold"]:
                     # Exceptional volume (likely institutional)
-                    score += 20
-                elif volume_ratio >= 1.5:
+                    score += p["exceptional_score"]
+                elif volume_ratio >= p["high_threshold"]:
                     # High volume
-                    score += 12
-                elif volume_ratio >= 1.2:
+                    score += p["high_score"]
+                elif volume_ratio >= p["above_avg_threshold"]:
                     # Above average
-                    score += 6
+                    score += p["above_avg_score"]
 
             # OBV trend
             obv_trend = ind.get("OBV_Trend")
             if obv_trend == 1:  # Uptrend
-                score += 5
+                score += p["obv_uptrend_score"]
 
-        except Exception as e:
+        except (KeyError, TypeError) as e:
             logger.warning(f"Error calculating volume score: {e}")
 
         # Normalize to 0-100
@@ -217,23 +223,24 @@ class ScoringEngine:
         Calculate volatility score (0-100)
 
         Components:
-        - Price near lower Bollinger Band: +8
-        - Bollinger Band squeeze (narrow width): +7
-        - Low ATR (< 3% of price): +3 bonus
+        - Price near lower Bollinger Band
+        - Bollinger Band squeeze (narrow width)
+        - Low ATR bonus
         """
         score = 0
-        max_score = 15
+        p = self.params["volatility"]
+        max_score = p["max_score"]
 
         try:
             # Bollinger Band position
             bb_percent = ind.get("BB_Percent")
             if bb_percent is not None:
-                if bb_percent < 0.3:
+                if bb_percent < p["near_lower_band_threshold"]:
                     # Near lower band (potential bounce)
-                    score += 8
-                elif bb_percent < 0.5:
+                    score += p["near_lower_band_score"]
+                elif bb_percent < p["below_middle_threshold"]:
                     # Below middle
-                    score += 5
+                    score += p["below_middle_score"]
 
             # Bollinger Band width (squeeze detection)
             bb_width = ind.get("BB_Width")
@@ -241,17 +248,17 @@ class ScoringEngine:
 
             if bb_width is not None and bb_middle is not None and bb_middle > 0:
                 width_percent = (bb_width / bb_middle) * 100
-                if width_percent < 3:  # Tight squeeze
-                    score += 7
-                elif width_percent < 5:
-                    score += 4
+                if width_percent < p["tight_squeeze_threshold"]:  # Tight squeeze
+                    score += p["tight_squeeze_score"]
+                elif width_percent < p["moderate_squeeze_threshold"]:
+                    score += p["moderate_squeeze_score"]
 
             # ATR check (bonus for low volatility)
             atr_percent = ind.get("ATR_Percent")
-            if atr_percent is not None and atr_percent < 3:
-                score += 3
+            if atr_percent is not None and atr_percent < p["low_atr_threshold"]:
+                score += p["low_atr_score"]
 
-        except Exception as e:
+        except (KeyError, TypeError) as e:
             logger.warning(f"Error calculating volatility score: {e}")
 
         # Normalize to 0-100
@@ -262,15 +269,16 @@ class ScoringEngine:
         Calculate pattern score (0-100)
 
         Components:
-        - Price near support (detected from SMAs): +5
-        - Bullish candlestick pattern: +3
-        - Volume confirmation: +2
+        - Price near support (detected from SMAs)
+        - Bullish candlestick pattern (placeholder)
+        - Volume confirmation (placeholder)
 
         Note: This is a simplified version. Full implementation would include
         more sophisticated pattern recognition.
         """
         score = 0
-        max_score = 10
+        p = self.params["pattern"]
+        max_score = p["max_score"]
 
         try:
             # Simple support detection: price near SMA_25
@@ -279,14 +287,14 @@ class ScoringEngine:
 
             if close and sma_25:
                 distance = abs(close - sma_25) / sma_25
-                if distance < 0.02:  # Within 2% of SMA_25
-                    score += 5
+                if distance < p["near_support_threshold"]:  # Within threshold of SMA_25
+                    score += p["near_support_score"]
 
             # Volume confirmation (already scored in volume section)
             # Pattern recognition placeholder
             # TODO: Implement candlestick pattern recognition
 
-        except Exception as e:
+        except (KeyError, TypeError) as e:
             logger.warning(f"Error calculating pattern score: {e}")
 
         # Normalize to 0-100

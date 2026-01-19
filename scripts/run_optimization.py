@@ -34,6 +34,18 @@ def load_stock_universe():
 
 def main():
     """Main optimization workflow"""
+    try:
+        _run_optimization()
+    except KeyboardInterrupt:
+        logger.info("\nOptimization interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Optimization failed with error: {e}")
+        raise
+
+
+def _run_optimization():
+    """Internal optimization workflow"""
     logger.info("="*70)
     logger.info("Japanese Stock Trading Recommender - Weight Optimization")
     logger.info("="*70)
@@ -158,7 +170,7 @@ def main():
     criteria_met.append(("Sharpe Ratio > 1.5", avg_sharpe > 1.5, f"{avg_sharpe:.2f}"))
 
     for criterion, met, value in criteria_met:
-        status = "✓" if met else "✗"
+        status = "[PASS]" if met else "[FAIL]"
         logger.info(f"  {status} {criterion}: {value}")
 
     # Save results

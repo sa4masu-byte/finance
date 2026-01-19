@@ -59,3 +59,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/

@@ -142,8 +142,13 @@ class TechnicalIndicators:
             delta = df["Close"].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=self.params["rsi_period"]).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=self.params["rsi_period"]).mean()
-            rs = gain / loss
-            df["RSI_14"] = 100 - (100 / (1 + rs))
+            # Avoid division by zero
+            rs = np.where(loss != 0, gain / loss, np.inf)
+            df["RSI_14"] = np.where(
+                loss == 0,
+                100.0,  # If no losses, RSI = 100
+                100 - (100 / (1 + rs))
+            )
 
         return df
 
@@ -171,7 +176,13 @@ class TechnicalIndicators:
             # Manual calculation
             low_min = df["Low"].rolling(window=self.params["stoch_k"]).min()
             high_max = df["High"].rolling(window=self.params["stoch_k"]).max()
-            df["Stoch_K"] = 100 * (df["Close"] - low_min) / (high_max - low_min)
+            denominator = high_max - low_min
+            # Avoid division by zero when high == low
+            df["Stoch_K"] = np.where(
+                denominator != 0,
+                100 * (df["Close"] - low_min) / denominator,
+                50.0  # Neutral value when range is zero
+            )
             df["Stoch_D"] = df["Stoch_K"].rolling(window=self.params["stoch_d"]).mean()
 
         return df
@@ -207,7 +218,13 @@ class TechnicalIndicators:
             df["BB_Upper"] = df["BB_Middle"] + (self.params["bb_std"] * std)
             df["BB_Lower"] = df["BB_Middle"] - (self.params["bb_std"] * std)
             df["BB_Width"] = df["BB_Upper"] - df["BB_Lower"]
-            df["BB_Percent"] = (df["Close"] - df["BB_Lower"]) / (df["BB_Upper"] - df["BB_Lower"])
+            # Avoid division by zero when BB_Width is zero
+            bb_range = df["BB_Upper"] - df["BB_Lower"]
+            df["BB_Percent"] = np.where(
+                bb_range != 0,
+                (df["Close"] - df["BB_Lower"]) / bb_range,
+                0.5  # Neutral value when bands are equal
+            )
 
         return df
 
@@ -252,7 +269,12 @@ class TechnicalIndicators:
         df = df.copy()
 
         df["Volume_MA"] = df["Volume"].rolling(window=self.params["volume_ma_period"]).mean()
-        df["Volume_Ratio"] = df["Volume"] / df["Volume_MA"]
+        # Avoid division by zero when Volume_MA is zero
+        df["Volume_Ratio"] = np.where(
+            df["Volume_MA"] != 0,
+            df["Volume"] / df["Volume_MA"],
+            1.0  # Neutral value when no average available
+        )
 
         return df
 
