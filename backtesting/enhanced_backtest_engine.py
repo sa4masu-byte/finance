@@ -534,12 +534,17 @@ class EnhancedBacktestEngine:
         if holding_days >= RISK_PARAMS["max_holding_days"]:
             return True, "max_holding_period"
 
-        # 6. Score deterioration
-        indicators = self._get_indicators_at_date(df, date)
-        if indicators:
-            score_result = self.scoring_engine.calculate_score(indicators)
-            if score_result["total_score"] < RISK_PARAMS["reeval_score_threshold"]:
-                return True, "score_deterioration"
+        # 6. Score deterioration (only check after minimum holding period)
+        # Also require score to drop significantly from entry
+        if holding_days >= RISK_PARAMS["min_holding_days"]:
+            indicators = self._get_indicators_at_date(df, date)
+            if indicators:
+                score_result = self.scoring_engine.calculate_score(indicators)
+                current_score = score_result["total_score"]
+                # Exit if score drops below threshold AND is significantly lower than entry
+                score_drop = position.score_at_entry - current_score
+                if current_score < RISK_PARAMS["reeval_score_threshold"] and score_drop > 15:
+                    return True, "score_deterioration"
 
         return False, ""
 

@@ -424,21 +424,23 @@ def run_ablation_study():
     logger.info("-" * 70)
 
     for name, params in improvements:
-        engine = EnhancedBacktestEngine(
-            initial_capital=INITIAL_CAPITAL,
-            max_positions=5,
-            enable_trailing_stop=False,
-            enable_volatility_sizing=False,
-            enable_market_regime=False,
-            enable_multi_timeframe=False,
-            enable_volume_breakout=False,
-            enable_swing_low_stop=False,
-            enable_additional_filters=False,
-            enable_compound=False,
-            min_score=55,
-            min_confidence=0.60,
-            **params,
-        )
+        # Build base config, then override with params
+        config = {
+            "initial_capital": INITIAL_CAPITAL,
+            "max_positions": 5,
+            "enable_trailing_stop": False,
+            "enable_volatility_sizing": False,
+            "enable_market_regime": False,
+            "enable_multi_timeframe": False,
+            "enable_volume_breakout": False,
+            "enable_swing_low_stop": False,
+            "enable_additional_filters": False,
+            "enable_compound": False,
+            "min_score": 55,
+            "min_confidence": 0.60,
+        }
+        config.update(params)
+        engine = EnhancedBacktestEngine(**config)
         results = engine.run_backtest(stock_data, "2022-01-01", "2024-12-31", sector_map=sector_map)
         delta = results.total_return_pct - baseline_return
         logger.info(f"{name:<25} {results.total_return_pct:+11.2f}% {delta:+11.2f}% {results.win_rate:11.1%}")
