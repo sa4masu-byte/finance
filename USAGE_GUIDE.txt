@@ -283,7 +283,62 @@ MARKET_REGIME_PARAMS:
 
 
 ================================================================================
-5. 注意事項
+5. スマホで確認（Webダッシュボード）
+================================================================================
+
+【セットアップ】
+
+# Flaskをインストール
+pip install flask
+
+# または
+pip install -e ".[dashboard]"
+
+
+【起動方法】
+
+# ステップ1: 日次レポートを生成
+python scripts/generate_daily_report.py
+
+# ステップ2: ダッシュボードサーバーを起動
+python -m dashboard.app
+
+# サーバーが起動したら以下のURLにアクセス:
+# PC:     http://localhost:5000
+# スマホ: http://<PCのIPアドレス>:5000
+
+
+【PCのIPアドレスを確認】
+
+Windows:
+  ipconfig
+
+Mac/Linux:
+  ifconfig
+  # または
+  ip addr
+
+
+【自動更新設定（Cron）】
+
+毎日朝8時にレポートを更新:
+
+# crontab -e で以下を追加
+0 8 * * * cd /path/to/finance && python scripts/generate_daily_report.py
+
+
+【ダッシュボード機能】
+
+- Market Regime: 現在の市場状況（Bull/Bear/Sideways）
+- Today's Picks: 本日の推奨銘柄（スコア順）
+- Open Positions: 保有中のポジション
+- Performance: 運用成績サマリー
+
+※ 5分ごとに自動リフレッシュ
+
+
+================================================================================
+6. 注意事項
 ================================================================================
 
 【リスク警告】

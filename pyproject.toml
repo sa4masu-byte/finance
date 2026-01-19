@@ -48,12 +48,19 @@ visualization = [
     "plotly>=5.18.0",
     "seaborn>=0.13.0",
 ]
+dashboard = [
+    "flask>=3.0.0",
+]
+ml = [
+    "lightgbm>=4.0.0",
+    "xgboost>=2.0.0",
+]
 
 [project.scripts]
 run-optimization = "scripts.run_optimization:main"
 
 [tool.setuptools.packages.find]
-include = ["src*", "config*", "backtesting*", "scripts*"]
+include = ["src*", "config*", "backtesting*", "scripts*", "dashboard*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
