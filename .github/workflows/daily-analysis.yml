@@ -1,0 +1,50 @@
+name: Daily Stock Analysis
+
+on:
+  # 毎日 23:00 UTC = 08:00 JST に実行
+  schedule:
+    - cron: '0 23 * * *'
+
+  # 手動実行も可能
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install yfinance flask requests
+
+      - name: Run daily analysis
+        run: |
+          python scripts/generate_daily_report.py
+        env:
+          PYTHONUNBUFFERED: "1"
+
+      - name: Upload report to PythonAnywhere
+        if: success()
+        env:
+          PA_USERNAME: ${{ secrets.PA_USERNAME }}
+          PA_API_TOKEN: ${{ secrets.PA_API_TOKEN }}
+        run: |
+          python scripts/upload_to_pythonanywhere.py
+
+      - name: Upload artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-${{ github.run_number }}
+          path: data/reports/latest_report.json
+          retention-days: 7
