@@ -90,6 +90,35 @@ def api_performance():
     return jsonify(report.get('performance', {}))
 
 
+@app.route('/api/refresh', methods=['POST'])
+def api_refresh():
+    """Trigger report regeneration (for local server only)"""
+    if ON_PYTHONANYWHERE:
+        return jsonify({"error": "Cannot fetch data on PythonAnywhere free tier"}), 403
+
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['python', 'scripts/generate_daily_report.py'],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        if result.returncode == 0:
+            return jsonify({"status": "success", "message": "Report updated"})
+        else:
+            return jsonify({"status": "error", "message": result.stderr}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/run')
+def run_page():
+    """Manual run page for smartphone"""
+    return render_template('run.html')
+
+
 if __name__ == '__main__':
     # Create templates and static directories
     templates_dir = Path(__file__).parent / 'templates'

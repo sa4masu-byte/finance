@@ -336,6 +336,10 @@
         Refresh
     </button>
 
+    <a href="/run" class="refresh-btn" style="display: block; text-align: center; text-decoration: none; margin-top: 10px; background: linear-gradient(135deg, #00c853, #16213e);">
+        Run Analysis
+    </a>
+
     <div class="footer">
         Last updated: {{ report.generated_at[:19] if report.generated_at else 'N/A' }}
     </div>
