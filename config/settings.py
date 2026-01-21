@@ -49,6 +49,9 @@ INDICATOR_PARAMS = {
 
     # OBV
     "obv_ma_period": 10,
+
+    # ADX (Average Directional Index)
+    "adx_period": 14,
 }
 
 # =============================================================================
@@ -73,12 +76,16 @@ assert abs(sum(SCORING_WEIGHTS.values()) - 1.0) < 0.001, "Weights must sum to 1.
 SCORING_PARAMS = {
     # Trend scoring
     "trend": {
-        "max_score": 35,
+        "max_score": 45,  # Increased to accommodate ADX
         "price_above_sma": 7,
         "golden_cross": 8,
         "macd_above_signal": 8,
         "macd_histogram_positive": 7,
         "sma_aligned_bonus": 5,
+        # ADX scoring (NEW)
+        "adx_strong_trend": 8,        # ADX > 25 (strong trend)
+        "adx_very_strong_trend": 10,  # ADX > 40 (very strong trend)
+        "di_bullish_crossover": 5,    # +DI > -DI (bullish)
     },
     # Momentum scoring
     "momentum": {
@@ -202,6 +209,34 @@ ENHANCED_RISK_PARAMS = {
     "swing_low_lookback": 5,               # 過去5日のスイングロー
     "swing_low_buffer_pct": 0.005,         # スイングロー - 0.5%
 
+    # 11. Dynamic Stop Loss (改善11: 動的ストップロス) - NEW
+    "dynamic_stop_loss_enabled": True,
+    "dynamic_stop_regimes": {
+        "bull": {
+            "atr_multiplier": 1.5,          # 強気相場: タイトなSL（ATR×1.5）
+            "profit_target_pct": 0.12,      # 利益目標12%
+            "trailing_activation_pct": 0.04, # 4%でトレーリング開始
+        },
+        "bear": {
+            "atr_multiplier": 2.5,          # 弱気相場: ゆるめのSL（ATR×2.5）
+            "profit_target_pct": 0.08,      # 利益目標8%
+            "trailing_activation_pct": 0.03, # 3%でトレーリング開始
+        },
+        "sideways": {
+            "atr_multiplier": 2.0,          # 横ばい相場: 標準SL（ATR×2.0）
+            "profit_target_pct": 0.10,      # 利益目標10%
+            "trailing_activation_pct": 0.035,# 3.5%でトレーリング開始
+        },
+        "high_volatility": {
+            "atr_multiplier": 3.0,          # 高ボラ相場: 広めのSL（ATR×3.0）
+            "profit_target_pct": 0.15,      # 利益目標15%
+            "trailing_activation_pct": 0.05, # 5%でトレーリング開始
+        },
+    },
+    "adx_based_adjustment": True,           # ADXに基づくSL調整
+    "adx_strong_trend_threshold": 30,       # 強いトレンド判定閾値
+    "adx_strong_trend_sl_tighten": 0.8,     # 強いトレンド時はSLを20%タイトに
+
     # 9. Compound Interest (改善9: 複利最適化)
     "compound_enabled": True,
     "compound_reinvest_pct": 0.50,         # 利益の50%を再投資
@@ -241,13 +276,26 @@ MARKET_REGIME_PARAMS = {
 MULTI_TIMEFRAME_PARAMS = {
     "enabled": True,
     "weekly_trend_confirmation": True,
+    "monthly_trend_confirmation": True,  # 月足確認を追加
     "weekly_sma_period": 10,          # 週足10週移動平均
-    "daily_weekly_alignment_bonus": 10, # 日足・週足の方向一致でスコア+10
+    "monthly_sma_period": 6,          # 月足6ヶ月移動平均
+
+    # タイムフレーム一致ボーナス
+    "daily_weekly_alignment_bonus": 10,      # 日足・週足の方向一致でスコア+10
+    "all_timeframe_alignment_bonus": 20,     # 日足・週足・月足全一致でスコア+20
+    "two_timeframe_alignment_bonus": 12,     # 2つのタイムフレーム一致でスコア+12
+    "weekly_monthly_alignment_bonus": 8,     # 週足・月足の一致ボーナス
 
     # 週足条件
     "weekly_bullish_conditions": [
         "price_above_weekly_sma",      # 株価が週足SMAより上
         "weekly_sma_rising",           # 週足SMAが上昇中
+    ],
+
+    # 月足条件
+    "monthly_bullish_conditions": [
+        "price_above_monthly_sma",     # 株価が月足SMAより上
+        "monthly_sma_rising",          # 月足SMAが上昇中
     ],
 }
 
@@ -288,6 +336,18 @@ ADDITIONAL_FILTERS = {
     "recent_performance_enabled": True,
     "recent_performance_days": 5,
     "recent_drawdown_max": -0.10,      # 直近5日で-10%以上下落した銘柄は除外
+
+    # Earnings filter (決算フィルター) - NEW
+    "earnings_filter_enabled": True,
+    "earnings_blackout_days_before": 3,  # 決算発表3日前から除外
+    "earnings_blackout_days_after": 2,   # 決算発表2日後まで除外
+    "earnings_volatility_spike_threshold": 3.0,  # ATRの3倍以上の変動は決算関連と推定
+    "earnings_calendar_file": None,       # 決算カレンダーファイルパス（オプション）
+
+    # High volatility filter (高ボラティリティ除外)
+    "high_volatility_filter_enabled": True,
+    "high_volatility_atr_multiplier": 2.5,  # 平均ATRの2.5倍以上は除外
+    "gap_filter_threshold": 0.05,          # 5%以上のギャップは除外
 }
 
 # =============================================================================

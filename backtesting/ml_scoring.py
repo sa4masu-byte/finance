@@ -1,6 +1,6 @@
 """
-Machine Learning Scoring Module (改善10)
-Integrates ML predictions with traditional scoring
+Machine Learning Scoring Module (改善10) - Enhanced with Ensemble Learning
+Integrates ML predictions with traditional scoring using multiple models
 """
 import logging
 from typing import Dict, List, Optional, Tuple
@@ -8,12 +8,31 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import pickle
+from abc import ABC, abstractmethod
 
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 from config.settings import ML_SCORING_PARAMS, REPORTS_DIR
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# ENSEMBLE CONFIGURATION
+# =============================================================================
+
+ENSEMBLE_CONFIG = {
+    "enabled": True,
+    "models": ["lightgbm", "xgboost", "random_forest"],
+    "voting_method": "soft",  # "hard" or "soft" (probability-weighted)
+    "model_weights": {
+        "lightgbm": 0.40,      # LightGBM gets highest weight (best on financial data)
+        "xgboost": 0.35,       # XGBoost second
+        "random_forest": 0.25,  # Random Forest for diversity
+    },
+    "min_models_for_prediction": 2,  # Minimum models that must agree
+    "confidence_threshold": 0.60,     # Minimum average confidence
+}
 
 
 class MLScoringEngine:
@@ -358,6 +377,364 @@ class MLScoringEngine:
             labels.append(label)
 
         return features, labels
+
+
+class EnsembleMLScoringEngine:
+    """
+    Ensemble Machine Learning scoring engine
+    Combines multiple models (LightGBM, XGBoost, RandomForest) for more robust predictions
+
+    Benefits:
+    - Reduced variance through model averaging
+    - Better generalization on unseen data
+    - More stable predictions
+    """
+
+    def __init__(
+        self,
+        models_dir: Optional[Path] = None,
+        config: Optional[Dict] = None,
+    ):
+        self.models_dir = models_dir or REPORTS_DIR / "ensemble_models"
+        self.models_dir.mkdir(parents=True, exist_ok=True)
+        self.config = config or ENSEMBLE_CONFIG
+        self.models: Dict[str, object] = {}
+        self.feature_columns = ML_SCORING_PARAMS["feature_columns"]
+        self.is_trained = False
+
+    def train_ensemble(
+        self,
+        training_data: pd.DataFrame,
+        labels: pd.Series,
+        validation_data: Optional[pd.DataFrame] = None,
+        validation_labels: Optional[pd.Series] = None,
+    ) -> Dict:
+        """
+        Train all ensemble models
+
+        Args:
+            training_data: Features DataFrame
+            labels: Target labels (1 = successful trade, 0 = unsuccessful)
+            validation_data: Optional validation features
+            validation_labels: Optional validation labels
+
+        Returns:
+            Training metrics for all models
+        """
+        X_train = self._prepare_features(training_data)
+        y_train = labels
+
+        if X_train.empty or len(y_train) == 0:
+            logger.error("No training data available for ensemble")
+            return {"error": "No training data"}
+
+        X_val = self._prepare_features(validation_data) if validation_data is not None else None
+        y_val = validation_labels
+
+        all_metrics = {}
+
+        for model_name in self.config["models"]:
+            logger.info(f"Training {model_name}...")
+            metrics = self._train_single_model(
+                model_name, X_train, y_train, X_val, y_val
+            )
+            all_metrics[model_name] = metrics
+
+        # Check if we have enough trained models
+        trained_models = [m for m in self.config["models"] if m in self.models]
+        if len(trained_models) >= self.config["min_models_for_prediction"]:
+            self.is_trained = True
+            self.save_models()
+            logger.info(f"Ensemble trained successfully with {len(trained_models)} models")
+        else:
+            logger.warning(f"Only {len(trained_models)} models trained, need at least {self.config['min_models_for_prediction']}")
+
+        return all_metrics
+
+    def _train_single_model(
+        self,
+        model_name: str,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: Optional[pd.DataFrame],
+        y_val: Optional[pd.Series],
+    ) -> Dict:
+        """Train a single model in the ensemble"""
+        if model_name == "lightgbm":
+            return self._train_lightgbm(X_train, y_train, X_val, y_val)
+        elif model_name == "xgboost":
+            return self._train_xgboost(X_train, y_train, X_val, y_val)
+        elif model_name == "random_forest":
+            return self._train_random_forest(X_train, y_train, X_val, y_val)
+        else:
+            return {"error": f"Unknown model type: {model_name}"}
+
+    def _train_lightgbm(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: Optional[pd.DataFrame],
+        y_val: Optional[pd.Series],
+    ) -> Dict:
+        """Train LightGBM model for ensemble"""
+        try:
+            import lightgbm as lgb
+
+            params = {
+                'objective': 'binary',
+                'metric': 'auc',
+                'boosting_type': 'gbdt',
+                'num_leaves': 31,
+                'learning_rate': 0.05,
+                'feature_fraction': 0.8,
+                'bagging_fraction': 0.8,
+                'bagging_freq': 5,
+                'verbose': -1,
+                'n_jobs': -1,
+                'seed': 42,
+            }
+
+            train_data = lgb.Dataset(X_train, label=y_train)
+
+            if X_val is not None and y_val is not None:
+                val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+                model = lgb.train(
+                    params,
+                    train_data,
+                    num_boost_round=500,
+                    valid_sets=[train_data, val_data],
+                    callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)],
+                )
+            else:
+                model = lgb.train(params, train_data, num_boost_round=200)
+
+            self.models["lightgbm"] = model
+            return {"model_type": "lightgbm", "status": "trained"}
+
+        except ImportError:
+            logger.warning("LightGBM not installed")
+            return {"error": "LightGBM not installed"}
+        except Exception as e:
+            logger.error(f"LightGBM training error: {e}")
+            return {"error": str(e)}
+
+    def _train_xgboost(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: Optional[pd.DataFrame],
+        y_val: Optional[pd.Series],
+    ) -> Dict:
+        """Train XGBoost model for ensemble"""
+        try:
+            import xgboost as xgb
+
+            params = {
+                'objective': 'binary:logistic',
+                'eval_metric': 'auc',
+                'max_depth': 6,
+                'learning_rate': 0.05,
+                'subsample': 0.8,
+                'colsample_bytree': 0.8,
+                'n_jobs': -1,
+                'seed': 42,
+            }
+
+            dtrain = xgb.DMatrix(X_train, label=y_train)
+
+            if X_val is not None and y_val is not None:
+                dval = xgb.DMatrix(X_val, label=y_val)
+                model = xgb.train(
+                    params,
+                    dtrain,
+                    num_boost_round=500,
+                    evals=[(dtrain, 'train'), (dval, 'val')],
+                    early_stopping_rounds=50,
+                    verbose_eval=False,
+                )
+            else:
+                model = xgb.train(params, dtrain, num_boost_round=200)
+
+            self.models["xgboost"] = model
+            return {"model_type": "xgboost", "status": "trained"}
+
+        except ImportError:
+            logger.warning("XGBoost not installed")
+            return {"error": "XGBoost not installed"}
+        except Exception as e:
+            logger.error(f"XGBoost training error: {e}")
+            return {"error": str(e)}
+
+    def _train_random_forest(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: Optional[pd.DataFrame],
+        y_val: Optional[pd.Series],
+    ) -> Dict:
+        """Train Random Forest model for ensemble"""
+        try:
+            from sklearn.ensemble import RandomForestClassifier
+
+            model = RandomForestClassifier(
+                n_estimators=200,
+                max_depth=10,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                n_jobs=-1,
+                random_state=42,
+                class_weight='balanced',
+            )
+
+            model.fit(X_train, y_train)
+            self.models["random_forest"] = model
+            return {"model_type": "random_forest", "status": "trained"}
+
+        except ImportError:
+            logger.warning("scikit-learn not installed")
+            return {"error": "scikit-learn not installed"}
+        except Exception as e:
+            logger.error(f"Random Forest training error: {e}")
+            return {"error": str(e)}
+
+    def predict_ensemble(self, indicators: Dict) -> Tuple[float, float, Dict]:
+        """
+        Get ensemble prediction using all trained models
+
+        Args:
+            indicators: Dictionary of indicator values
+
+        Returns:
+            Tuple of (ensemble_score 0-100, confidence 0-1, model_predictions dict)
+        """
+        if not self.is_trained or not self.models:
+            return 0.0, 0.0, {}
+
+        features = pd.DataFrame([indicators])
+        X = self._prepare_features(features)
+
+        if X.empty:
+            return 0.0, 0.0, {}
+
+        model_predictions = {}
+        weighted_sum = 0.0
+        total_weight = 0.0
+
+        for model_name, model in self.models.items():
+            try:
+                prob = self._get_model_prediction(model_name, model, X)
+                if prob is not None:
+                    model_predictions[model_name] = prob
+                    weight = self.config["model_weights"].get(model_name, 1.0)
+                    weighted_sum += prob * weight
+                    total_weight += weight
+            except Exception as e:
+                logger.warning(f"Prediction error for {model_name}: {e}")
+
+        if total_weight == 0 or len(model_predictions) < self.config["min_models_for_prediction"]:
+            return 0.0, 0.0, model_predictions
+
+        # Calculate ensemble score
+        if self.config["voting_method"] == "soft":
+            ensemble_prob = weighted_sum / total_weight
+        else:  # hard voting
+            ensemble_prob = np.mean(list(model_predictions.values()))
+
+        ensemble_score = ensemble_prob * 100
+
+        # Calculate confidence based on model agreement
+        probs = list(model_predictions.values())
+        agreement = 1.0 - np.std(probs) * 2  # Lower std = higher agreement
+        confidence = max(0.0, min(1.0, agreement))
+
+        return ensemble_score, confidence, model_predictions
+
+    def _get_model_prediction(self, model_name: str, model: object, X: pd.DataFrame) -> Optional[float]:
+        """Get prediction from a single model"""
+        if model_name == "lightgbm":
+            return float(model.predict(X)[0])
+        elif model_name == "xgboost":
+            import xgboost as xgb
+            dtest = xgb.DMatrix(X)
+            return float(model.predict(dtest)[0])
+        elif model_name == "random_forest":
+            return float(model.predict_proba(X)[0, 1])
+        return None
+
+    def get_combined_score(
+        self,
+        traditional_score: float,
+        indicators: Dict,
+    ) -> Tuple[float, float, Dict]:
+        """
+        Combine traditional score with ensemble ML score
+
+        Args:
+            traditional_score: Score from traditional scoring engine (0-100)
+            indicators: Dictionary of indicator values
+
+        Returns:
+            Tuple of (combined_score, ml_confidence, model_predictions)
+        """
+        if not self.is_trained:
+            return traditional_score, 0.0, {}
+
+        ml_score, ml_confidence, model_preds = self.predict_ensemble(indicators)
+
+        if ml_confidence < self.config["confidence_threshold"]:
+            return traditional_score, ml_confidence, model_preds
+
+        # Weighted combination
+        traditional_weight = ML_SCORING_PARAMS["traditional_score_weight"]
+        ml_weight = ML_SCORING_PARAMS["ml_score_weight"]
+
+        combined = traditional_score * traditional_weight + ml_score * ml_weight
+
+        return combined, ml_confidence, model_preds
+
+    def _prepare_features(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Prepare features for model"""
+        if data is None:
+            return pd.DataFrame()
+
+        available_cols = [col for col in self.feature_columns if col in data.columns]
+        if not available_cols:
+            return pd.DataFrame()
+
+        features = data[available_cols].copy()
+        features = features.fillna(features.median())
+        features = features.replace([np.inf, -np.inf], 0)
+        return features
+
+    def save_models(self, path: Optional[Path] = None):
+        """Save all trained models"""
+        save_dir = path or self.models_dir
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        for model_name, model in self.models.items():
+            model_path = save_dir / f"{model_name}_model.pkl"
+            with open(model_path, 'wb') as f:
+                pickle.dump(model, f)
+            logger.info(f"Saved {model_name} model to {model_path}")
+
+    def load_models(self, path: Optional[Path] = None) -> bool:
+        """Load all trained models"""
+        load_dir = path or self.models_dir
+
+        loaded_count = 0
+        for model_name in self.config["models"]:
+            model_path = load_dir / f"{model_name}_model.pkl"
+            if model_path.exists():
+                try:
+                    with open(model_path, 'rb') as f:
+                        self.models[model_name] = pickle.load(f)
+                    loaded_count += 1
+                    logger.info(f"Loaded {model_name} model")
+                except Exception as e:
+                    logger.warning(f"Failed to load {model_name}: {e}")
+
+        self.is_trained = loaded_count >= self.config["min_models_for_prediction"]
+        return self.is_trained
 
 
 def train_ml_model_from_backtest(
