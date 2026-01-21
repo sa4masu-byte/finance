@@ -126,6 +126,11 @@ SCORING_PARAMS = {
         "max_score": 10,
         "near_support_threshold": 0.02,
         "near_support_score": 5,
+        "bullish_engulfing_bonus": 3,
+        "three_soldiers_bonus": 3,
+        "morning_star_bonus": 2,
+        "hammer_bonus": 2,
+        "pattern_volume_confirmation": 2,
     },
 }
 
