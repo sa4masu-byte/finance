@@ -270,11 +270,8 @@ class ScoringEngine:
 
         Components:
         - Price near support (detected from SMAs)
-        - Bullish candlestick pattern (placeholder)
-        - Volume confirmation (placeholder)
-
-        Note: This is a simplified version. Full implementation would include
-        more sophisticated pattern recognition.
+        - Candlestick pattern recognition (engulfing, hammer, doji, etc.)
+        - Volume confirmation with patterns
         """
         score = 0
         p = self.params["pattern"]
@@ -290,9 +287,35 @@ class ScoringEngine:
                 if distance < p["near_support_threshold"]:  # Within threshold of SMA_25
                     score += p["near_support_score"]
 
-            # Volume confirmation (already scored in volume section)
-            # Pattern recognition placeholder
-            # TODO: Implement candlestick pattern recognition
+            # Candlestick Pattern Recognition
+            pattern_score = ind.get("Pattern_Score", 0)
+            if pattern_score is not None and pattern_score > 0:
+                # Bullish patterns add to score (max 5 points from patterns)
+                # Pattern_Score ranges from -100 to 100, normalize to 0-5
+                normalized_pattern = min(pattern_score / 20, 5)
+                score += normalized_pattern
+
+            # Individual high-reliability patterns get bonus
+            engulfing = ind.get("Pattern_Engulfing", 0)
+            if engulfing == 1:  # Bullish engulfing
+                score += p.get("bullish_engulfing_bonus", 3)
+
+            three_soldiers = ind.get("Pattern_ThreeSoldiers", 0)
+            if three_soldiers == 1:  # Three white soldiers
+                score += p.get("three_soldiers_bonus", 3)
+
+            morning_star = ind.get("Pattern_MorningStar", 0)
+            if morning_star == 1:  # Morning star
+                score += p.get("morning_star_bonus", 2)
+
+            hammer = ind.get("Pattern_Hammer", 0)
+            if hammer == 1:  # Bullish hammer
+                score += p.get("hammer_bonus", 2)
+
+            # Volume confirmation with bullish patterns
+            volume_ratio = ind.get("Volume_Ratio", 1)
+            if pattern_score and pattern_score > 0 and volume_ratio and volume_ratio > 1.5:
+                score += p.get("pattern_volume_confirmation", 2)
 
         except (KeyError, TypeError) as e:
             logger.warning(f"Error calculating pattern score: {e}")

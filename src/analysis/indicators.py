@@ -67,6 +67,9 @@ class TechnicalIndicators:
         df = self.add_volume_indicators(df)
         df = self.add_obv(df)
 
+        # Candlestick patterns
+        df = self.add_candlestick_patterns(df)
+
         logger.debug(f"Calculated all indicators. DataFrame now has {len(df.columns)} columns")
         return df
 
@@ -310,6 +313,187 @@ class TechnicalIndicators:
 
         return df
 
+    def add_candlestick_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add candlestick pattern recognition
+
+        Adds columns:
+        - Candle_Body: Body size (Close - Open)
+        - Candle_Body_Pct: Body as percentage of range
+        - Upper_Shadow: Upper shadow size
+        - Lower_Shadow: Lower shadow size
+        - Pattern_Doji: Doji pattern detected (1/-1/0)
+        - Pattern_Hammer: Hammer/Hanging Man pattern (1/-1/0)
+        - Pattern_Engulfing: Bullish/Bearish engulfing (1/-1/0)
+        - Pattern_PinBar: Pin bar pattern (1/-1/0)
+        - Pattern_ThreeSoldiers: Three white soldiers (1) or three black crows (-1)
+        - Pattern_MorningStar: Morning/Evening star (1/-1/0)
+        - Pattern_Score: Combined pattern score (-100 to 100)
+        """
+        df = df.copy()
+
+        # Calculate basic candle components
+        df["Candle_Body"] = df["Close"] - df["Open"]
+        df["Candle_Range"] = df["High"] - df["Low"]
+        df["Candle_Body_Pct"] = np.where(
+            df["Candle_Range"] != 0,
+            np.abs(df["Candle_Body"]) / df["Candle_Range"],
+            0
+        )
+        df["Upper_Shadow"] = df["High"] - df[["Open", "Close"]].max(axis=1)
+        df["Lower_Shadow"] = df[["Open", "Close"]].min(axis=1) - df["Low"]
+
+        # Initialize pattern columns
+        df["Pattern_Doji"] = 0
+        df["Pattern_Hammer"] = 0
+        df["Pattern_Engulfing"] = 0
+        df["Pattern_PinBar"] = 0
+        df["Pattern_ThreeSoldiers"] = 0
+        df["Pattern_MorningStar"] = 0
+
+        # Doji: Very small body (< 10% of range)
+        doji_threshold = 0.10
+        df["Pattern_Doji"] = np.where(
+            df["Candle_Body_Pct"] < doji_threshold,
+            np.where(df["Close"] > df["Open"], 1, -1),  # Slight bullish/bearish bias
+            0
+        )
+
+        # Hammer/Hanging Man: Small body at top, long lower shadow
+        # Hammer (bullish): After downtrend, body at top, lower shadow >= 2x body
+        # Hanging Man (bearish): After uptrend, body at top, lower shadow >= 2x body
+        body_abs = np.abs(df["Candle_Body"])
+        is_small_body = df["Candle_Body_Pct"] < 0.35
+        long_lower_shadow = df["Lower_Shadow"] >= 2 * body_abs
+        small_upper_shadow = df["Upper_Shadow"] < body_abs * 0.5
+
+        hammer_condition = is_small_body & long_lower_shadow & small_upper_shadow
+
+        # Determine trend context using 5-day SMA
+        prior_trend = df["Close"].rolling(5).mean().diff()
+        is_downtrend = prior_trend < 0
+        is_uptrend = prior_trend > 0
+
+        df["Pattern_Hammer"] = np.where(
+            hammer_condition & is_downtrend, 1,  # Bullish hammer
+            np.where(hammer_condition & is_uptrend, -1, 0)  # Bearish hanging man
+        )
+
+        # Inverted Hammer / Shooting Star: Small body at bottom, long upper shadow
+        long_upper_shadow = df["Upper_Shadow"] >= 2 * body_abs
+        small_lower_shadow = df["Lower_Shadow"] < body_abs * 0.5
+        inverted_condition = is_small_body & long_upper_shadow & small_lower_shadow
+
+        # Add inverted patterns to hammer column
+        df["Pattern_Hammer"] = np.where(
+            inverted_condition & is_downtrend, 1,  # Inverted hammer (bullish)
+            np.where(inverted_condition & is_uptrend, -1,  # Shooting star (bearish)
+                     df["Pattern_Hammer"])
+        )
+
+        # Engulfing Pattern: Current candle body engulfs previous candle body
+        prev_body = df["Candle_Body"].shift(1)
+        prev_open = df["Open"].shift(1)
+        prev_close = df["Close"].shift(1)
+
+        # Bullish engulfing: Previous bearish, current bullish and engulfs
+        bullish_engulfing = (
+            (prev_body < 0) &  # Previous was bearish
+            (df["Candle_Body"] > 0) &  # Current is bullish
+            (df["Open"] < prev_close) &  # Current open below previous close
+            (df["Close"] > prev_open)  # Current close above previous open
+        )
+
+        # Bearish engulfing: Previous bullish, current bearish and engulfs
+        bearish_engulfing = (
+            (prev_body > 0) &  # Previous was bullish
+            (df["Candle_Body"] < 0) &  # Current is bearish
+            (df["Open"] > prev_close) &  # Current open above previous close
+            (df["Close"] < prev_open)  # Current close below previous open
+        )
+
+        df["Pattern_Engulfing"] = np.where(
+            bullish_engulfing, 1,
+            np.where(bearish_engulfing, -1, 0)
+        )
+
+        # Pin Bar: Long tail, small body at one end
+        pin_bar_body_max = 0.25
+        pin_bar_shadow_min = 2.5
+        is_pin_body = df["Candle_Body_Pct"] < pin_bar_body_max
+
+        bullish_pin = is_pin_body & (df["Lower_Shadow"] >= pin_bar_shadow_min * body_abs)
+        bearish_pin = is_pin_body & (df["Upper_Shadow"] >= pin_bar_shadow_min * body_abs)
+
+        df["Pattern_PinBar"] = np.where(
+            bullish_pin & is_downtrend, 1,
+            np.where(bearish_pin & is_uptrend, -1, 0)
+        )
+
+        # Three White Soldiers / Three Black Crows
+        for i in range(2, len(df)):
+            # Check for three consecutive bullish candles with higher closes
+            if (df["Candle_Body"].iloc[i] > 0 and
+                df["Candle_Body"].iloc[i-1] > 0 and
+                df["Candle_Body"].iloc[i-2] > 0 and
+                df["Close"].iloc[i] > df["Close"].iloc[i-1] > df["Close"].iloc[i-2] and
+                df["Open"].iloc[i] > df["Open"].iloc[i-1] > df["Open"].iloc[i-2]):
+                df.iloc[i, df.columns.get_loc("Pattern_ThreeSoldiers")] = 1
+
+            # Check for three consecutive bearish candles with lower closes
+            if (df["Candle_Body"].iloc[i] < 0 and
+                df["Candle_Body"].iloc[i-1] < 0 and
+                df["Candle_Body"].iloc[i-2] < 0 and
+                df["Close"].iloc[i] < df["Close"].iloc[i-1] < df["Close"].iloc[i-2] and
+                df["Open"].iloc[i] < df["Open"].iloc[i-1] < df["Open"].iloc[i-2]):
+                df.iloc[i, df.columns.get_loc("Pattern_ThreeSoldiers")] = -1
+
+        # Morning Star / Evening Star (3-candle reversal pattern)
+        for i in range(2, len(df)):
+            first_body = df["Candle_Body"].iloc[i-2]
+            second_body_pct = df["Candle_Body_Pct"].iloc[i-1]
+            third_body = df["Candle_Body"].iloc[i]
+
+            # Morning Star: Large bearish, small body (star), large bullish
+            if (first_body < 0 and
+                abs(first_body) > df["Candle_Range"].iloc[i-2] * 0.5 and
+                second_body_pct < 0.3 and
+                third_body > 0 and
+                third_body > df["Candle_Range"].iloc[i] * 0.5 and
+                df["Close"].iloc[i] > (df["Open"].iloc[i-2] + df["Close"].iloc[i-2]) / 2):
+                df.iloc[i, df.columns.get_loc("Pattern_MorningStar")] = 1
+
+            # Evening Star: Large bullish, small body (star), large bearish
+            if (first_body > 0 and
+                first_body > df["Candle_Range"].iloc[i-2] * 0.5 and
+                second_body_pct < 0.3 and
+                third_body < 0 and
+                abs(third_body) > df["Candle_Range"].iloc[i] * 0.5 and
+                df["Close"].iloc[i] < (df["Open"].iloc[i-2] + df["Close"].iloc[i-2]) / 2):
+                df.iloc[i, df.columns.get_loc("Pattern_MorningStar")] = -1
+
+        # Combined Pattern Score (-100 to 100)
+        # Weight different patterns by reliability
+        pattern_weights = {
+            "Engulfing": 30,
+            "ThreeSoldiers": 25,
+            "MorningStar": 25,
+            "Hammer": 15,
+            "PinBar": 10,
+            "Doji": 5,
+        }
+
+        df["Pattern_Score"] = (
+            df["Pattern_Engulfing"] * pattern_weights["Engulfing"] +
+            df["Pattern_ThreeSoldiers"] * pattern_weights["ThreeSoldiers"] +
+            df["Pattern_MorningStar"] * pattern_weights["MorningStar"] +
+            df["Pattern_Hammer"] * pattern_weights["Hammer"] +
+            df["Pattern_PinBar"] * pattern_weights["PinBar"] +
+            df["Pattern_Doji"] * pattern_weights["Doji"]
+        )
+
+        return df
+
     def get_latest_indicators(self, df: pd.DataFrame) -> Dict:
         """
         Get the most recent indicator values as a dictionary
@@ -357,4 +541,13 @@ class TechnicalIndicators:
             "Volume_Ratio": latest.get("Volume_Ratio"),
             "OBV": latest.get("OBV"),
             "OBV_Trend": latest.get("OBV_Trend"),
+
+            # Candlestick Patterns
+            "Pattern_Doji": latest.get("Pattern_Doji"),
+            "Pattern_Hammer": latest.get("Pattern_Hammer"),
+            "Pattern_Engulfing": latest.get("Pattern_Engulfing"),
+            "Pattern_PinBar": latest.get("Pattern_PinBar"),
+            "Pattern_ThreeSoldiers": latest.get("Pattern_ThreeSoldiers"),
+            "Pattern_MorningStar": latest.get("Pattern_MorningStar"),
+            "Pattern_Score": latest.get("Pattern_Score"),
         }
