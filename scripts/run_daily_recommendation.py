@@ -101,11 +101,10 @@ def fetch_minimal_data(symbols: List[str], days: int = 60) -> Dict:
 
     for symbol in symbols:
         try:
-            df = fetcher.fetch(
+            df = fetcher.fetch_stock_data(
                 symbol,
                 start_date.strftime("%Y-%m-%d"),
                 end_date.strftime("%Y-%m-%d"),
-                use_cache=True,  # 当日のみキャッシュ
             )
             if df is not None and len(df) > 20:
                 stock_data[symbol] = df
