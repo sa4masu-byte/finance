@@ -54,6 +54,7 @@ class TechnicalIndicators:
         # Trend indicators
         df = self.add_moving_averages(df)
         df = self.add_macd(df)
+        df = self.add_adx(df)  # ADX for trend strength
 
         # Momentum indicators
         df = self.add_rsi(df)
@@ -123,6 +124,71 @@ class TechnicalIndicators:
             df["MACD"] = exp1 - exp2
             df["MACD_Signal"] = df["MACD"].ewm(span=self.params["macd_signal"], adjust=False).mean()
             df["MACD_Histogram"] = df["MACD"] - df["MACD_Signal"]
+
+        return df
+
+    def add_adx(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add ADX (Average Directional Index) for trend strength measurement
+
+        Adds columns:
+        - ADX: 14-period ADX (0-100, trend strength)
+        - Plus_DI: +DI line
+        - Minus_DI: -DI line
+        - ADX_Trend: 1 if strong trend (ADX > 25), 0 otherwise
+
+        Academic basis:
+        - ADX > 25 indicates a strong trend (Wilder, 1978)
+        - ADX > 50 indicates very strong trend
+        - ADX < 20 indicates weak/no trend
+        """
+        df = df.copy()
+        period = self.params.get("adx_period", 14)
+
+        if ta is not None:
+            try:
+                adx_df = ta.adx(df["High"], df["Low"], df["Close"], length=period)
+                df["ADX"] = adx_df[f"ADX_{period}"]
+                df["Plus_DI"] = adx_df[f"DMP_{period}"]
+                df["Minus_DI"] = adx_df[f"DMN_{period}"]
+            except Exception as e:
+                logger.warning(f"pandas_ta ADX calculation failed: {e}")
+                df = self._calculate_adx_manual(df, period)
+        else:
+            df = self._calculate_adx_manual(df, period)
+
+        # ADX trend strength indicator
+        df["ADX_Trend"] = np.where(df["ADX"] > 25, 1, 0)
+
+        return df
+
+    def _calculate_adx_manual(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+        """Manual ADX calculation"""
+        # True Range
+        high_low = df["High"] - df["Low"]
+        high_close = np.abs(df["High"] - df["Close"].shift())
+        low_close = np.abs(df["Low"] - df["Close"].shift())
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+
+        # Directional Movement
+        up_move = df["High"] - df["High"].shift()
+        down_move = df["Low"].shift() - df["Low"]
+
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+
+        # Smoothed values using Wilder's smoothing
+        atr = tr.ewm(alpha=1/period, adjust=False).mean()
+        plus_di = 100 * pd.Series(plus_dm).ewm(alpha=1/period, adjust=False).mean() / atr
+        minus_di = 100 * pd.Series(minus_dm).ewm(alpha=1/period, adjust=False).mean() / atr
+
+        # ADX
+        dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
+        adx = dx.ewm(alpha=1/period, adjust=False).mean()
+
+        df["ADX"] = adx
+        df["Plus_DI"] = plus_di
+        df["Minus_DI"] = minus_di
 
         return df
 
@@ -336,6 +402,10 @@ class TechnicalIndicators:
             "MACD": latest.get("MACD"),
             "MACD_Signal": latest.get("MACD_Signal"),
             "MACD_Histogram": latest.get("MACD_Histogram"),
+            "ADX": latest.get("ADX"),
+            "Plus_DI": latest.get("Plus_DI"),
+            "Minus_DI": latest.get("Minus_DI"),
+            "ADX_Trend": latest.get("ADX_Trend"),
 
             # Momentum
             "RSI_14": latest.get("RSI_14"),

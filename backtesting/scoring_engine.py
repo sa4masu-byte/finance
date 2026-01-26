@@ -94,6 +94,8 @@ class ScoringEngine:
         - MACD > Signal
         - MACD Histogram increasing
         - All SMAs aligned bonus
+        - ADX trend strength (NEW)
+        - DI bullish crossover (NEW)
         """
         score = 0
         p = self.params["trend"]
@@ -124,6 +126,25 @@ class ScoringEngine:
             if ind.get("SMA_5") and ind.get("SMA_25") and ind.get("SMA_75"):
                 if ind["SMA_5"] > ind["SMA_25"] > ind["SMA_75"]:
                     score += p["sma_aligned_bonus"]  # All SMAs aligned
+
+            # ADX trend strength scoring (NEW)
+            adx = ind.get("ADX")
+            if adx is not None:
+                if adx > 40:
+                    # Very strong trend
+                    score += p.get("adx_very_strong_trend", 10)
+                elif adx > 25:
+                    # Strong trend
+                    score += p.get("adx_strong_trend", 8)
+                # ADX < 25 indicates weak/no trend - no bonus
+
+            # DI crossover scoring (NEW)
+            plus_di = ind.get("Plus_DI")
+            minus_di = ind.get("Minus_DI")
+            if plus_di is not None and minus_di is not None:
+                if plus_di > minus_di:
+                    # Bullish trend (buyers stronger than sellers)
+                    score += p.get("di_bullish_crossover", 5)
 
         except (KeyError, TypeError) as e:
             logger.warning(f"Error calculating trend score: {e}")
@@ -313,7 +334,8 @@ class ScoringEngine:
         required_indicators = [
             "Close", "SMA_5", "SMA_25", "RSI_14",
             "MACD", "MACD_Signal", "Volume_Ratio",
-            "BB_Upper", "BB_Lower", "ATR"
+            "BB_Upper", "BB_Lower", "ATR",
+            "ADX", "Plus_DI", "Minus_DI"  # Added ADX indicators
         ]
 
         available = sum(1 for ind in required_indicators if indicators.get(ind) is not None)

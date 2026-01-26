@@ -258,14 +258,16 @@ class EnhancedBacktestEngine:
         # Calculate indicators for all stocks
         stocks_with_indicators = {}
         weekly_data = {}
+        monthly_data = {}
 
         for symbol, df in stock_data.items():
             df_with_ind = self.indicator_engine.calculate_all(df)
             stocks_with_indicators[symbol] = df_with_ind
 
-            # Generate weekly data for multi-timeframe analysis
+            # Generate weekly and monthly data for multi-timeframe analysis
             if self.enable_multi_timeframe:
                 weekly_data[symbol] = self._resample_to_weekly(df_with_ind)
+                monthly_data[symbol] = self._resample_to_monthly(df_with_ind)
 
         # Get date range
         start_dt = pd.to_datetime(start_date)
@@ -298,6 +300,7 @@ class EnhancedBacktestEngine:
                 current_date,
                 stocks_with_indicators,
                 weekly_data,
+                monthly_data,
                 sector_map
             )
 
@@ -351,7 +354,38 @@ class EnhancedBacktestEngine:
             window=MULTI_TIMEFRAME_PARAMS['weekly_sma_period']
         ).mean()
 
+        # Weekly SMA trend (rising or falling)
+        weekly['SMA_Weekly_Prev'] = weekly['SMA_Weekly'].shift(1)
+        weekly['Weekly_Bullish'] = (
+            (weekly['Close'] > weekly['SMA_Weekly']) &
+            (weekly['SMA_Weekly'] > weekly['SMA_Weekly_Prev'])
+        )
+
         return weekly
+
+    def _resample_to_monthly(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Resample daily data to monthly for multi-timeframe analysis"""
+        monthly = df.resample('ME').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        }).dropna()
+
+        # Calculate monthly SMA
+        monthly['SMA_Monthly'] = monthly['Close'].rolling(
+            window=MULTI_TIMEFRAME_PARAMS['monthly_sma_period']
+        ).mean()
+
+        # Monthly SMA trend (rising or falling)
+        monthly['SMA_Monthly_Prev'] = monthly['SMA_Monthly'].shift(1)
+        monthly['Monthly_Bullish'] = (
+            (monthly['Close'] > monthly['SMA_Monthly']) &
+            (monthly['SMA_Monthly'] > monthly['SMA_Monthly_Prev'])
+        )
+
+        return monthly
 
     def _build_market_index(self, stocks: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """Build market index from average of all stocks"""
@@ -458,6 +492,7 @@ class EnhancedBacktestEngine:
         date: datetime,
         stocks: Dict[str, pd.DataFrame],
         weekly_data: Dict[str, pd.DataFrame],
+        monthly_data: Dict[str, pd.DataFrame],
         sector_map: Dict[str, str]
     ):
         """Process a single trading day with all enhancements"""
@@ -466,7 +501,7 @@ class EnhancedBacktestEngine:
 
         # 2. Look for new entry opportunities
         if len(self.open_positions) < self.max_positions:
-            self._check_entries(date, stocks, weekly_data, sector_map)
+            self._check_entries(date, stocks, weekly_data, monthly_data, sector_map)
 
     def _check_exits(self, date: datetime, stocks: Dict[str, pd.DataFrame]):
         """Check exit conditions with trailing stop (改善1) and swing low stop (改善6)"""
@@ -553,6 +588,7 @@ class EnhancedBacktestEngine:
         date: datetime,
         stocks: Dict[str, pd.DataFrame],
         weekly_data: Dict[str, pd.DataFrame],
+        monthly_data: Dict[str, pd.DataFrame],
         sector_map: Dict[str, str]
     ):
         """Enhanced entry check with all filters"""
@@ -580,12 +616,14 @@ class EnhancedBacktestEngine:
             total_score = score_result["total_score"]
             confidence = score_result["confidence"]
 
-            # Multi-timeframe analysis bonus (改善4)
-            if self.enable_multi_timeframe and symbol in weekly_data:
-                weekly_bonus = self._calculate_weekly_alignment_bonus(
-                    weekly_data[symbol], date
+            # Multi-timeframe analysis bonus (改善4) - Enhanced with 3 timeframes
+            if self.enable_multi_timeframe:
+                weekly_df = weekly_data.get(symbol)
+                monthly_df = monthly_data.get(symbol)
+                mtf_bonus = self._calculate_multi_timeframe_bonus(
+                    df, weekly_df, monthly_df, date
                 )
-                total_score += weekly_bonus
+                total_score += mtf_bonus
 
             # Volume breakout bonus (改善5)
             if self.enable_volume_breakout:
@@ -645,10 +683,14 @@ class EnhancedBacktestEngine:
         date: datetime,
         indicators: Dict
     ) -> bool:
-        """Check additional filters (改善8)"""
+        """Check additional filters (改善8) - Enhanced with earnings and volatility filters"""
+        if date not in df.index:
+            return False
+
+        idx = df.index.get_loc(date)
+
         # Recent performance filter
         if ADDITIONAL_FILTERS["recent_performance_enabled"]:
-            idx = df.index.get_loc(date) if date in df.index else -1
             if idx >= ADDITIONAL_FILTERS["recent_performance_days"]:
                 recent_return = (
                     df['Close'].iloc[idx] /
@@ -657,14 +699,191 @@ class EnhancedBacktestEngine:
                 if recent_return < ADDITIONAL_FILTERS["recent_drawdown_max"]:
                     return False
 
+        # Earnings filter (決算フィルター) - NEW
+        if ADDITIONAL_FILTERS["earnings_filter_enabled"]:
+            if not self._passes_earnings_filter(df, date, idx, indicators):
+                return False
+
+        # High volatility / Gap filter (高ボラティリティフィルター) - NEW
+        if ADDITIONAL_FILTERS["high_volatility_filter_enabled"]:
+            if not self._passes_volatility_filter(df, date, idx, indicators):
+                return False
+
         return True
+
+    def _passes_earnings_filter(
+        self,
+        df: pd.DataFrame,
+        date: datetime,
+        idx: int,
+        indicators: Dict
+    ) -> bool:
+        """
+        Check if stock passes earnings filter (決算フィルター)
+
+        Uses volatility spike detection as proxy for earnings dates
+        when explicit earnings calendar is not available.
+        """
+        lookback = max(
+            ADDITIONAL_FILTERS["earnings_blackout_days_before"],
+            ADDITIONAL_FILTERS["earnings_blackout_days_after"]
+        ) + 5
+
+        if idx < lookback:
+            return True
+
+        atr = indicators.get("ATR")
+        if atr is None or atr <= 0:
+            return True
+
+        # Check for volatility spikes in the surrounding period
+        spike_threshold = ADDITIONAL_FILTERS["earnings_volatility_spike_threshold"]
+        blackout_before = ADDITIONAL_FILTERS["earnings_blackout_days_before"]
+        blackout_after = ADDITIONAL_FILTERS["earnings_blackout_days_after"]
+
+        # Check past days for volatility spikes (possible recent earnings)
+        for i in range(1, blackout_after + 1):
+            if idx - i < 0:
+                continue
+            daily_range = abs(df['High'].iloc[idx - i] - df['Low'].iloc[idx - i])
+            if daily_range > atr * spike_threshold:
+                return False  # Recent earnings - still in blackout
+
+        # Check if there's an upcoming spike pattern (possible upcoming earnings)
+        # Use volume and volatility increase as proxy
+        avg_volume = df['Volume'].iloc[max(0, idx-20):idx].mean()
+        recent_volume = df['Volume'].iloc[idx]
+
+        if avg_volume > 0:
+            volume_ratio = recent_volume / avg_volume
+            # Unusual volume buildup before earnings
+            if volume_ratio > 2.5:
+                # Check if volatility is also increasing
+                recent_atr = df['ATR'].iloc[max(0, idx-5):idx].mean() if 'ATR' in df.columns else atr
+                if recent_atr > atr * 1.5:
+                    return False  # Possible upcoming earnings
+
+        return True
+
+    def _passes_volatility_filter(
+        self,
+        df: pd.DataFrame,
+        date: datetime,
+        idx: int,
+        indicators: Dict
+    ) -> bool:
+        """
+        Check if stock passes volatility filter (高ボラティリティフィルター)
+
+        Filters out stocks with:
+        - Unusually high volatility (>2.5x average ATR)
+        - Large gaps (>5% overnight moves)
+        """
+        if idx < 2:
+            return True
+
+        # Gap filter
+        gap_threshold = ADDITIONAL_FILTERS["gap_filter_threshold"]
+        prev_close = df['Close'].iloc[idx - 1]
+        current_open = df['Open'].iloc[idx]
+
+        if prev_close > 0:
+            gap_pct = abs(current_open - prev_close) / prev_close
+            if gap_pct > gap_threshold:
+                return False  # Large gap - possibly news/earnings related
+
+        # High volatility filter
+        atr = indicators.get("ATR")
+        atr_pct = indicators.get("ATR_Percent")
+
+        if atr is not None and atr_pct is not None:
+            # Calculate average ATR% over past 20 days
+            if 'ATR_Percent' in df.columns:
+                avg_atr_pct = df['ATR_Percent'].iloc[max(0, idx-20):idx].mean()
+                if avg_atr_pct > 0:
+                    vol_multiplier = ADDITIONAL_FILTERS["high_volatility_atr_multiplier"]
+                    if atr_pct > avg_atr_pct * vol_multiplier:
+                        return False  # Unusually high volatility
+
+        return True
+
+    def _calculate_multi_timeframe_bonus(
+        self,
+        daily_df: pd.DataFrame,
+        weekly_df: Optional[pd.DataFrame],
+        monthly_df: Optional[pd.DataFrame],
+        date: datetime
+    ) -> float:
+        """
+        Calculate bonus for multi-timeframe alignment (改善4 - Enhanced)
+
+        Returns higher bonus when all 3 timeframes (daily, weekly, monthly) align bullish.
+        """
+        daily_bullish = self._is_daily_bullish(daily_df, date)
+        weekly_bullish = self._is_weekly_bullish(weekly_df, date)
+        monthly_bullish = self._is_monthly_bullish(monthly_df, date)
+
+        bullish_count = sum([daily_bullish, weekly_bullish, monthly_bullish])
+
+        # All 3 timeframes aligned - highest bonus
+        if bullish_count == 3:
+            return MULTI_TIMEFRAME_PARAMS["all_timeframe_alignment_bonus"]
+
+        # 2 timeframes aligned
+        if bullish_count == 2:
+            return MULTI_TIMEFRAME_PARAMS["two_timeframe_alignment_bonus"]
+
+        # Only 1 timeframe bullish - no bonus
+        return 0
+
+    def _is_daily_bullish(self, df: pd.DataFrame, date: datetime) -> bool:
+        """Check if daily timeframe is bullish"""
+        if df is None or df.empty or date not in df.index:
+            return False
+
+        row = df.loc[date]
+        close = row.get('Close')
+        sma_25 = row.get('SMA_25')
+        sma_5 = row.get('SMA_5')
+
+        if pd.isna(close) or pd.isna(sma_25) or pd.isna(sma_5):
+            return False
+
+        # Daily bullish: price above SMA25 and SMA5 > SMA25
+        return close > sma_25 and sma_5 > sma_25
+
+    def _is_weekly_bullish(self, weekly_df: Optional[pd.DataFrame], date: datetime) -> bool:
+        """Check if weekly timeframe is bullish"""
+        if weekly_df is None or weekly_df.empty:
+            return False
+
+        # Find the most recent weekly data point
+        weekly_dates = weekly_df.index[weekly_df.index <= date]
+        if len(weekly_dates) == 0:
+            return False
+
+        latest_weekly = weekly_df.loc[weekly_dates[-1]]
+        return bool(latest_weekly.get('Weekly_Bullish', False))
+
+    def _is_monthly_bullish(self, monthly_df: Optional[pd.DataFrame], date: datetime) -> bool:
+        """Check if monthly timeframe is bullish"""
+        if monthly_df is None or monthly_df.empty:
+            return False
+
+        # Find the most recent monthly data point
+        monthly_dates = monthly_df.index[monthly_df.index <= date]
+        if len(monthly_dates) == 0:
+            return False
+
+        latest_monthly = monthly_df.loc[monthly_dates[-1]]
+        return bool(latest_monthly.get('Monthly_Bullish', False))
 
     def _calculate_weekly_alignment_bonus(
         self,
         weekly_df: pd.DataFrame,
         date: datetime
     ) -> float:
-        """Calculate bonus for weekly trend alignment (改善4)"""
+        """Calculate bonus for weekly trend alignment (改善4) - Legacy support"""
         if weekly_df.empty:
             return 0
 
@@ -735,7 +954,7 @@ class EnhancedBacktestEngine:
         sector: str,
         df: pd.DataFrame,
     ):
-        """Enter position with volatility-based sizing (改善2)"""
+        """Enter position with volatility-based sizing (改善2) and dynamic stop loss (改善11)"""
         # Calculate position size based on volatility (改善2)
         if self.enable_volatility_sizing:
             position_size = self._calculate_volatility_position_size(atr, price)
@@ -766,15 +985,19 @@ class EnhancedBacktestEngine:
         if cost > self.capital:
             return
 
-        # Calculate stop losses
-        stop_loss = price - (atr * RISK_PARAMS["stop_loss_atr_multiplier"])
+        # Get ADX for dynamic stop loss adjustment
+        indicators = self._get_indicators_at_date(df, date)
+        adx = indicators.get("ADX") if indicators else None
+
+        # Calculate dynamic stop loss and target (改善11)
+        stop_loss, target_price, trailing_activation = self._calculate_dynamic_stop_loss(
+            price, atr, adx
+        )
 
         # Swing low stop (改善6)
         swing_low_stop = 0.0
         if self.enable_swing_low_stop:
             swing_low_stop = self._calculate_swing_low_stop(df, date)
-
-        target_price = price * (1 + RISK_PARAMS["profit_target_max"])
 
         # Create trade
         trade = EnhancedTrade(
@@ -797,6 +1020,52 @@ class EnhancedBacktestEngine:
 
         logger.debug(f"Entered {symbol} at {effective_price:.2f} "
                      f"({shares} shares, score={score:.1f}, regime={self.current_regime.value})")
+
+    def _calculate_dynamic_stop_loss(
+        self,
+        price: float,
+        atr: float,
+        adx: Optional[float] = None,
+    ) -> Tuple[float, float, float]:
+        """
+        Calculate dynamic stop loss based on market regime and ADX (改善11)
+
+        Args:
+            price: Entry price
+            atr: ATR at entry
+            adx: ADX value at entry (optional)
+
+        Returns:
+            Tuple of (stop_loss_price, target_price, trailing_activation_pct)
+        """
+        # Get regime-specific parameters
+        regime_name = self.current_regime.value
+        regime_params = ENHANCED_RISK_PARAMS.get("dynamic_stop_regimes", {}).get(
+            regime_name,
+            {"atr_multiplier": 2.0, "profit_target_pct": 0.10, "trailing_activation_pct": 0.035}
+        )
+
+        atr_multiplier = regime_params["atr_multiplier"]
+        profit_target_pct = regime_params["profit_target_pct"]
+        trailing_activation = regime_params["trailing_activation_pct"]
+
+        # ADX-based adjustment (改善11)
+        if ENHANCED_RISK_PARAMS.get("adx_based_adjustment", False) and adx is not None:
+            adx_threshold = ENHANCED_RISK_PARAMS.get("adx_strong_trend_threshold", 30)
+            if adx > adx_threshold:
+                # Strong trend detected - tighten stop loss
+                tighten_factor = ENHANCED_RISK_PARAMS.get("adx_strong_trend_sl_tighten", 0.8)
+                atr_multiplier *= tighten_factor
+                # Also increase profit target in strong trends
+                profit_target_pct *= 1.2
+
+        # Calculate stop loss
+        stop_loss = price - (atr * atr_multiplier)
+
+        # Calculate target price
+        target_price = price * (1 + profit_target_pct)
+
+        return stop_loss, target_price, trailing_activation
 
     def _calculate_volatility_position_size(self, atr: float, price: float) -> float:
         """Calculate position size based on volatility (改善2)"""
