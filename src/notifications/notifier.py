@@ -14,26 +14,41 @@ from datetime import datetime
 
 
 class LineNotifier:
-    """LINE Notify通知"""
+    """LINE Messaging API通知"""
 
-    def __init__(self, token: str = None):
-        self.token = token or os.environ.get("LINE_NOTIFY_TOKEN")
-        self.api_url = "https://notify-api.line.me/api/notify"
+    def __init__(self, channel_token: str = None, user_id: str = None):
+        self.channel_token = channel_token or os.environ.get("LINE_CHANNEL_TOKEN")
+        self.user_id = user_id or os.environ.get("LINE_USER_ID")
+        self.api_url = "https://api.line.me/v2/bot/message/push"
 
     def send(self, message: str) -> bool:
-        if not self.token:
-            print("⚠️ LINE_NOTIFY_TOKEN が設定されていません")
+        if not self.channel_token:
+            print("⚠️ LINE_CHANNEL_TOKEN が設定されていません")
+            return False
+        if not self.user_id:
+            print("⚠️ LINE_USER_ID が設定されていません")
             return False
 
-        headers = {"Authorization": f"Bearer {self.token}"}
-        data = {"message": message}
+        headers = {
+            "Authorization": f"Bearer {self.channel_token}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "to": self.user_id,
+            "messages": [{"type": "text", "text": message}]
+        }
 
         try:
-            r = requests.post(self.api_url, headers=headers, data=data, timeout=10)
+            r = requests.post(self.api_url, headers=headers, json=data, timeout=10)
             return r.status_code == 200
         except Exception as e:
             print(f"LINE送信エラー: {e}")
             return False
+
+    @property
+    def token(self):
+        """後方互換性のため"""
+        return self.channel_token
 
 
 class SlackNotifier:
@@ -132,7 +147,7 @@ class Notifier:
         results = {}
 
         # LINE
-        if self.line.token:
+        if self.line.channel_token and self.line.user_id:
             results["line"] = self.line.send(message)
 
         # Slack
@@ -152,7 +167,7 @@ class Notifier:
 
         channels = channels or ["line", "slack", "discord"]
 
-        if "line" in channels and self.line.token:
+        if "line" in channels and self.line.channel_token and self.line.user_id:
             results["line"] = self.line.send(message)
 
         if "slack" in channels and self.slack.webhook_url:
