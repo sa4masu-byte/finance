@@ -670,12 +670,15 @@ class EnhancedBacktestEngine:
         if not self.enable_market_regime:
             return self.min_score
 
+        # レジームに応じた調整（コンストラクタのmin_scoreをベースに）
         if self.current_regime == MarketRegime.BULL:
-            return MARKET_REGIME_PARAMS["bull_min_score"]
+            # 強気相場では少し緩和
+            return max(self.min_score - 5, MARKET_REGIME_PARAMS["bull_min_score"])
         elif self.current_regime == MarketRegime.BEAR:
-            return MARKET_REGIME_PARAMS["bear_min_score"]
+            # 弱気相場では厳格化
+            return max(self.min_score + 10, MARKET_REGIME_PARAMS["bear_min_score"])
         else:
-            return MARKET_REGIME_PARAMS["sideways_min_score"]
+            return self.min_score
 
     def _passes_additional_filters(
         self,
