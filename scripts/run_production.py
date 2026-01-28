@@ -20,11 +20,11 @@ from backtesting.optimized_strategy import OptimizedStrategy
 
 
 def load_watchlist():
-    """監視銘柄読み込み"""
+    """監視銘柄読み込み（300銘柄対応）"""
     f = DATA_DIR / "watchlist.json"
     if f.exists():
         with open(f) as fp:
-            return json.load(fp).get("symbols", [])[:50]
+            return json.load(fp).get("symbols", [])  # 全銘柄
     return ["7203.JP", "6758.JP", "9984.JP", "8306.JP", "9432.JP"]
 
 
