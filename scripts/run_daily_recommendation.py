@@ -157,6 +157,7 @@ def calculate_recommendations(stock_data: Dict) -> List[Dict]:
                     "momentum_score": result["momentum_score"],
                     "volume_score": result["volume_score"],
                     "volatility_score": result["volatility_score"],
+                    "pattern_score": result["pattern_score"],
                     "confidence": result["confidence"],
                     "rsi": latest.get("RSI_14"),
                     "adx": latest.get("ADX"),
@@ -187,10 +188,12 @@ def output_recommendations(recommendations: List[Dict]):
         print(f"   価格: ¥{rec['price']:,.0f}")
         print(f"   総合スコア: {rec['total_score']:.1f}/100")
         print(f"   信頼度: {rec['confidence']*100:.0f}%")
+        print(f"   採点内訳:")
         print(f"   ├─ トレンド: {rec['trend_score']:.1f}")
         print(f"   ├─ モメンタム: {rec['momentum_score']:.1f}")
         print(f"   ├─ 出来高: {rec['volume_score']:.1f}")
-        print(f"   └─ ボラティリティ: {rec['volatility_score']:.1f}")
+        print(f"   ├─ ボラティリティ: {rec['volatility_score']:.1f}")
+        print(f"   └─ パターン: {rec['pattern_score']:.1f}")
         if rec.get('adx'):
             print(f"   ADX: {rec['adx']:.1f} {'(強いトレンド)' if rec['adx'] > 25 else ''}")
         if rec.get('rsi'):
