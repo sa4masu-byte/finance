@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # Streamlit Webダッシュボード
+  web:
+    build: .
+    container_name: finance-web
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - TZ=Asia/Tokyo
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - finance-network
+
+  # スケジューラー（定期実行タスク）
+  scheduler:
+    build: .
+    container_name: finance-scheduler
+    command: python web/scheduler.py
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - TZ=Asia/Tokyo
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - finance-network
+    depends_on:
+      - web
+
+networks:
+  finance-network:
+    driver: bridge
+
+volumes:
+  data:
+  config:
