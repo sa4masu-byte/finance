@@ -26,10 +26,11 @@ seaborn>=0.13.0
 # Database
 sqlalchemy>=2.0.0
 
-# Web framework (optional, for future dashboard)
+# Web framework
 fastapi>=0.104.0
 streamlit>=1.29.0
 uvicorn>=0.24.0
+APScheduler>=3.10.0  # Task scheduler
 
 # Utilities
 python-dotenv>=1.0.0

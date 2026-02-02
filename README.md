@@ -139,48 +139,118 @@ python scripts/visualize_portfolio_performance.py
 - グラフ: `data/reports/portfolio_performance_YYYYMMDD_HHMMSS.png`
 - パフォーマンスサマリー（コンソール出力）
 
+## 🌐 Webダッシュボード
+
+### ローカル起動
+
+Streamlitベースのインタラクティブなダッシュボードを提供:
+
+```bash
+# Webダッシュボード起動
+streamlit run web/app.py
+```
+
+ブラウザで http://localhost:8501 にアクセス
+
+**ページ構成:**
+- 🏠 **ホーム**: 今日の推奨銘柄と詳細スコア
+- 📈 **パフォーマンス**: ポートフォリオ資金推移グラフ
+- 📜 **履歴**: 過去の推奨銘柄一覧とフィルター機能
+- ⚙️ **設定**: システム設定と手動実行
+
+### 定期実行スケジューラー
+
+APSchedulerで自動タスク実行:
+
+```bash
+# スケジューラー起動（別ターミナル）
+python web/scheduler.py
+```
+
+**実行スケジュール:**
+- 毎日 09:00 JST: 推奨銘柄生成
+- 毎日 18:00 JST: パフォーマンス可視化
+- 毎週月曜 10:00 JST: 重み最適化（オプション）
+
+### Docker環境
+
+```bash
+# ビルド & 起動
+docker-compose up -d
+
+# ログ確認
+docker-compose logs -f
+
+# 停止
+docker-compose down
+```
+
+**サービス構成:**
+- `web`: Streamlitダッシュボード (ポート: 8501)
+- `scheduler`: バックグラウンド定期実行
+
+**詳細:** [docs/deployment_guide.md](docs/deployment_guide.md)
+
 ## 🗂️ プロジェクト構成
 
 ```
 finance/
 ├── README.md                  # このファイル
 ├── requirements.txt           # 依存パッケージ
+├── Dockerfile                 # Dockerイメージ定義
+├── docker-compose.yml         # Docker Compose設定
 │
 ├── config/
 │   ├── settings.py           # 設定パラメータ
 │   └── stock_universe.json   # 対象銘柄リスト
 │
 ├── docs/
-│   ├── indicator_selection_rationale.md   # 指標選定の根拠
-│   └── backtesting_optimization_design.md # 最適化設計書
+│   ├── indicator_selection_rationale.md      # 指標選定の根拠
+│   ├── backtesting_optimization_design.md    # 最適化設計書
+│   ├── web_service_architecture.md           # Webサービス設計書
+│   └── deployment_guide.md                   # デプロイガイド
 │
 ├── src/
 │   ├── data/
 │   │   ├── fetcher.py       # Stooqデータ取得
 │   │   └── cache.py         # キャッシュ管理
 │   │
-│   ├── analysis/
-│   │   └── indicators.py    # テクニカル指標計算
-│   │
-│   ├── screening/           # (今後実装)
-│   │   └── recommender.py   # 推奨エンジン
-│   │
-│   └── reporting/           # (今後実装)
-│       └── generator.py     # レポート生成
+│   └── analysis/
+│       └── indicators.py    # テクニカル指標計算
 │
 ├── backtesting/
 │   ├── scoring_engine.py    # スコアリングロジック
 │   ├── backtest_engine.py   # バックテストシミュレーション
 │   └── optimizer.py         # 重み最適化
 │
+├── web/                      # Webダッシュボード
+│   ├── app.py               # Streamlitメインアプリ
+│   ├── data_manager.py      # データアクセス層
+│   ├── scheduler.py         # 定期実行スケジューラー
+│   ├── pages/               # ダッシュボードページ
+│   │   ├── home.py          # ホームページ
+│   │   ├── performance.py   # パフォーマンスページ
+│   │   ├── history.py       # 履歴ページ
+│   │   └── settings.py      # 設定ページ
+│   └── .streamlit/
+│       └── config.toml      # Streamlit設定
+│
 ├── scripts/
-│   ├── run_optimization.py  # 最適化実行スクリプト
-│   └── daily_scan.py        # (今後実装) 日次スキャン
+│   ├── run_optimization.py               # 最適化実行
+│   ├── run_daily_recommendation.py       # 日次推奨生成
+│   ├── visualize_portfolio_performance.py # パフォーマンス可視化
+│   ├── download_and_backtest.py          # データ取得&バックテスト
+│   └── validate_backtest_simulation.py   # バックテスト検証
+│
+├── tests/                    # テストコード
+│   └── ...
 │
 └── data/
-    ├── cache/               # データキャッシュ
-    ├── db/                  # データベース
-    └── reports/             # 最適化結果
+    ├── stock_cache/          # 株価データキャッシュ (Parquet)
+    └── reports/              # レポート & 推奨履歴
+        ├── recommendation_*.json           # 日次推奨
+        ├── portfolio_performance_*.png     # パフォーマンスグラフ
+        └── best_weights.json               # 最適化重み
 ```
 
 ## ⚙️ 設定のカスタマイズ
@@ -291,4 +361,6 @@ MIT License
 - ✅ 重み最適化
 - ✅ 日次推奨システム
 - ✅ ポートフォリオパフォーマンス可視化
-- 🔄 Webダッシュボード（実装予定）
+- ✅ Webダッシュボード（Streamlit）
+- ✅ 定期実行スケジューラー（APScheduler）
+- ✅ Docker対応
