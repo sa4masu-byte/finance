@@ -141,8 +141,8 @@ class RecommendationBackfiller:
                     "date": current_date.isoformat(),
                     "recommendations": recommendations_with_performance,
                     "criteria": {
-                        "min_score": 65,
-                        "min_confidence": 0.70
+                        "min_score": 55,
+                        "min_confidence": 0.65
                     },
                     "backfilled": True
                 }
@@ -193,8 +193,13 @@ class RecommendationBackfiller:
                 # スコア計算
                 score_result = self.scoring_engine.calculate_score(indicators)
 
-                # 推奨基準チェック
-                if self.scoring_engine.should_recommend(score_result):
+                # 推奨基準チェック（基準を緩和）
+                # 元の基準: min_score=65, min_confidence=0.70
+                # 緩和版: min_score=55, min_confidence=0.65
+                total_score = score_result["total_score"]
+                confidence = score_result["confidence"]
+
+                if total_score >= 55 and confidence >= 0.65:
                     candidates.append({
                         "symbol": symbol,
                         "price": float(indicators.get("Close", 0)),
