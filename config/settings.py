@@ -148,8 +148,8 @@ SCREENING_CRITERIA = {
     "max_price": 50_000,                # 最高株価5万円
 
     # Technical filters
-    "min_score": 65,                    # 最低スコア65点（100点満点）
-    "min_confidence": 0.70,             # 最低信頼度70%
+    "min_score": 55,                    # 最低スコア55点（100点満点）【緩和版】
+    "min_confidence": 0.65,             # 最低信頼度65%【緩和版】
 
     # Exclusions
     "exclude_gap_threshold": 0.05,      # 5%以上のギャップは除外

@@ -147,8 +147,10 @@ def calculate_recommendations(stock_data: Dict) -> List[Dict]:
             # スコアを計算
             result = scoring_engine.calculate_score(latest)
 
-            # 推奨基準をチェック
-            if scoring_engine.should_recommend(result):
+            # 推奨基準をチェック（基準を緩和）
+            # 元の基準: min_score=65, min_confidence=0.70
+            # 緩和版: min_score=55, min_confidence=0.65
+            if result["total_score"] >= 55 and result["confidence"] >= 0.65:
                 recommendations.append({
                     "symbol": symbol,
                     "price": latest["Close"],

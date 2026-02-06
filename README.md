@@ -191,6 +191,32 @@ docker-compose down
 
 **詳細:** [docs/deployment_guide.md](docs/deployment_guide.md)
 
+### クラウドデプロイ（推奨）📱
+
+**Streamlit Community Cloud で世界中からアクセス:**
+
+```bash
+# 1. GitHubにプッシュ（完了済み）
+git push origin main
+
+# 2. Streamlit Cloudでデプロイ
+# https://streamlit.io/cloud
+# - リポジトリを接続
+# - Main file: web/app.py
+# - Deploy!
+
+# 3. GitHub Actionsで自動実行
+# 毎日 09:00 JST: 推奨銘柄を自動生成
+# 毎週月曜 10:00 JST: 重み最適化
+```
+
+**完成イメージ:**
+- URL: `https://your-app.streamlit.app`
+- スマホ・PCから24時間アクセス可能
+- 完全無料で運用
+
+**詳細:** [docs/streamlit_cloud_deployment.md](docs/streamlit_cloud_deployment.md)
+
 ## 🗂️ プロジェクト構成
 
 ```
